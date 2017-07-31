@@ -27,7 +27,8 @@ import indexeddataframe.logical._
 
 object IndexedOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case CreateIndex(colNo, child) => CreateIndexExec(planLater(child)) :: Nil
+    case CreateIndex(colNo, child) => CreateIndexExec(colNo, planLater(child)) :: Nil
+    case AppendRows(rows, child) => AppendRowsExec(rows, planLater(child)) :: Nil
     case _ => Nil
   }
 }

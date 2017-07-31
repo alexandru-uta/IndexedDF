@@ -17,10 +17,14 @@
 
 package org.apache.spark.sql
 
-import indexeddataframe.logical.CreateIndex
+import indexeddataframe.logical.{AppendRows, CreateIndex}
+import org.apache.spark.sql.catalyst.InternalRow
 
 class IndexedDatasetFunctions[T](ds: Dataset[T]) extends Serializable {
   def createIndex(colNo: Int): DataFrame = {
     Dataset.ofRows(ds.sparkSession, CreateIndex(colNo, ds.logicalPlan))
+  }
+  def appendRows(rows: Seq[InternalRow]): DataFrame = {
+    Dataset.ofRows(ds.sparkSession, AppendRows(rows, ds.logicalPlan))
   }
 }

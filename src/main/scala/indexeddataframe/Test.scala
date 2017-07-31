@@ -9,11 +9,13 @@ import java.util
 import org.apache.spark.sql.{Row, SparkSession}
 import indexeddataframe.implicits._
 import org.apache.spark.SparkEnv
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.unsafe.types.UTF8String
 
 object Test extends App {
 
-  val nTimes = 10000
-  def getFriends(idf: InternalIndexedDF[String, Row], myVal: String): Int = {
+  val nTimes = 1
+  def getFriends(idf: InternalIndexedDF[Long], myVal: Long): Int = {
     var count = 0
     val friendsIter = idf.get(myVal)
     if (friendsIter != null) {
@@ -39,9 +41,10 @@ object Test extends App {
     .format("com.databricks.spark.csv")
     .option("header", "true")
     .option("delimiter", "|")
-    .load("/Users/alexuta/Desktop/test.csv")
+    .option("inferSchema", true)
+    .load("/home/alex/projects/test3.csv")
 
-  df.cache()
+  //df.cache()
   df.show()
 
   df = df.repartition(4, $"src")
@@ -49,13 +52,22 @@ object Test extends App {
   val idf2 = df.createIndex(0)
   idf2.explain(true)
 
-  idf2.collect()
-  idf2.show()
+  var appendList = Seq[InternalRow]()
+  for (i <- 0 to 5) {
+    val row = InternalRow.fromSeq(Seq(i.toLong, (i + 1).toLong, UTF8String.fromString("sdasda")))
+
+    appendList = appendList :+ row
+  }
+  println(appendList)
+
+  val idf3 = idf2.appendRows(appendList)
+
+  idf3.collect()
 
   /*
-  System.exit(0)
+  //System.exit(0)
 
-  val idf = new InternalIndexedDF
+  val idf = new InternalIndexedDF[Long]
   idf.createIndex(df, 0)
   idf.appendRows(df.collect())
 
@@ -64,7 +76,7 @@ object Test extends App {
   var i = 0
   var count = 0
   for (i <- 0 to nTimes) {
-    count = getFriends(idf, "2199023262994")
+    count = getFriends(idf, 2199023262994L)
   }
   val t2 = System.nanoTime()
 
