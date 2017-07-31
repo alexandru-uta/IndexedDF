@@ -45,6 +45,17 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
 
   }
 
+  def zipfunc(iter1: Iterator[InternalIndexedDF[Long]], iter2: Iterator[(Long, InternalRow)] ): Iterator[InternalIndexedDF[Long]] = {
+    val idf = iter1.next()
+    while (iter2.hasNext) {
+      val value = iter2.next()._2
+      idf.appendRow(value)
+
+      println("I appended a row!!!")
+    }
+    Iterator(idf)
+  }
+
   def appendRows(rows: Seq[InternalRow]): IRDD = {
     val map = collection.mutable.Map[Long, InternalRow]()
     rows.foreach( row => {
@@ -58,8 +69,12 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
     val updatesRDD = context.parallelize(map.toSeq)
     val partitionedUpdates = updatesRDD.repartition(partitionsRDD.getNumPartitions)
 
-    partitionedUpdates.foreachPartition( i => println( i.size ))
+    //partitionedUpdates.foreachPartition( i => println( i.size ))
 
-    this
+    val result = partitionsRDD.zipPartitions(partitionedUpdates)(zipfunc)
+
+    result.foreachPartition(it => println(it.size))
+
+    new IRDD(colNo, result)
   }
 }

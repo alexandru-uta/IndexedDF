@@ -85,7 +85,7 @@ class InternalIndexedDF[K] {
     * method that appends a row to the local indexed data frame partition
     * @param row
     */
-  private def appendRow(row: InternalRow) = {
+  def appendRow(row: InternalRow) = {
     this.rows.append(row.copy())
     // check if the row already exists in the ctrie
     val key = row.get(this.indexCol, schema.fields(this.indexCol).dataType)

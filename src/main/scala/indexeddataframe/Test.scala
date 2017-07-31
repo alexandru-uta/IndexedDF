@@ -62,7 +62,7 @@ object Test extends App {
 
   val idf3 = idf2.appendRows(appendList)
 
-  idf3.collect()
+  println(idf3.collect().size)
 
   /*
   //System.exit(0)
