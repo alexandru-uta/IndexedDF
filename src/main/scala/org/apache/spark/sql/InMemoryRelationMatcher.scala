@@ -15,22 +15,18 @@
  * limitations under the License.
  */
 
+package org.apache.spark.sql
 
-package indexeddataframe
-
-import org.apache.spark.sql.Strategy
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.columnar.InMemoryRelation
+import org.apache.spark.storage.StorageLevel
 
-import indexeddataframe.execution._
-import indexeddataframe.logical._
-
-object IndexedOperators extends Strategy {
-  def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case CreateIndex(colNo, child) => CreateIndexExec(colNo, planLater(child)) :: Nil
-    case AppendRows(rows, child) => AppendRowsExec(rows, planLater(child)) :: Nil
-    case IndexedBlockRDD(output, rdd) => IndexedBlockRDDScanExec(output, rdd) :: Nil
-    //case IndexedLocalRelation(output, data) => IndexedLocalTableScanExec(output, data) :: Nil
-    case _ => Nil
+object InMemoryRelationMatcher {
+  def unapply(plan: LogicalPlan): Option[(Seq[Attribute], StorageLevel, SparkPlan)] = plan match {
+    case p @ InMemoryRelation(output, _, _, storageLevel, child, _) =>
+      Some((output, storageLevel, child))
+    case _ => None
   }
 }

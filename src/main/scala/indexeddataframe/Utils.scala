@@ -5,6 +5,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types.{DataType, LongType}
+import org.apache.spark.storage.StorageLevel
 
 import scala.reflect.ClassTag
 
@@ -28,6 +29,16 @@ object Utils {
 
     idf
   }
+
+  def ensureCached[T](rdd: IRDD, storageLevel: StorageLevel = StorageLevel.MEMORY_ONLY): IRDD = {
+    println(rdd.getStorageLevel + " --------- " + storageLevel)
+
+    if (rdd.getStorageLevel == StorageLevel.NONE) {
+      rdd.persist(storageLevel)
+    } else {
+      rdd
+    }
+  }
 }
 
 class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexedDF[Long]])
@@ -39,6 +50,11 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
 
   override def compute(part: Partition, context: TaskContext): Iterator[InternalRow] = {
     firstParent[InternalIndexedDF[Long]].iterator(part, context).next.iterator
+  }
+
+  override def persist(newLevel: StorageLevel): this.type = {
+    partitionsRDD.persist(newLevel)
+    this
   }
 
   def get(key: Long) = {
@@ -73,7 +89,7 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
 
     val result = partitionsRDD.zipPartitions(partitionedUpdates)(zipfunc)
 
-    result.foreachPartition(it => println(it.size))
+    //result.foreachPartition(it => println(it.size))
 
     new IRDD(colNo, result)
   }

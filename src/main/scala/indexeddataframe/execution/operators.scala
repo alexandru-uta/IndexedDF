@@ -2,7 +2,7 @@ package indexeddataframe.execution
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.{SparkPlan}
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
@@ -45,10 +45,13 @@ trait IndexedOperatorExec extends SparkPlan {
   }
 
   override def executeCollect(): Array[InternalRow] = {
+      println("executing the collect operator")
       executeBlocked().collect()
   }
 
   override def executeTake(n: Int): Array[InternalRow] = {
+    println("executing the take operator")
+
     if (n == 0) {
       return new Array[InternalRow](0)
     }
@@ -67,7 +70,7 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
       true)
     val ret = new IRDD(colNo, partitions)
 
-    ret
+    Utils.ensureCached(ret)
   }
 }
 
@@ -77,8 +80,21 @@ case class AppendRowsExec(rows: Seq[InternalRow], child: SparkPlan) extends Unar
   override def executeBlocked(): IRDD = {
     println("executing the appendRows operator")
 
-    val ret = child.asInstanceOf[IndexedOperatorExec].executeBlocked().appendRows(rows)
+    val rdd = child.asInstanceOf[IndexedOperatorExec].executeBlocked().appendRows(rows)
+    //val result = rdd.appendRows(rows)
 
-    ret
+    Utils.ensureCached(rdd)
+  }
+}
+
+case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD)
+  extends LeafExecNode with IndexedOperatorExec {
+
+  override def executeBlocked(): IRDD = {
+    println("executing the cache() operator")
+
+    println(" !!!!! " +  rdd.getStorageLevel.toString())
+
+    Utils.ensureCached(rdd)
   }
 }

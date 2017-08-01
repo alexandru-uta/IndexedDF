@@ -6,8 +6,10 @@ package indexeddataframe
 
 import java.util
 
+import indexeddataframe.execution.IndexedOperatorExec
 import org.apache.spark.sql.{Row, SparkSession}
 import indexeddataframe.implicits._
+import indexeddataframe.logical.ConvertToIndexedOperators
 import org.apache.spark.SparkEnv
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.unsafe.types.UTF8String
@@ -36,7 +38,7 @@ object Test extends App {
   import sparkSession.implicits._
 
   sparkSession.experimental.extraStrategies = (Seq(IndexedOperators) ++ sparkSession.experimental.extraStrategies)
-
+  sparkSession.experimental.extraOptimizations = (Seq(ConvertToIndexedOperators) ++ sparkSession.experimental.extraOptimizations)
   var df = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
@@ -44,25 +46,39 @@ object Test extends App {
     .option("inferSchema", true)
     .load("/home/alex/projects/test3.csv")
 
-  //df.cache()
-  df.show()
+  df.cache()
+  df.collect()
 
   df = df.repartition(4, $"src")
 
-  val idf2 = df.createIndex(0)
-  idf2.explain(true)
+  val idf2 = df.createIndex(0).cache()
+  val size0 = idf2.collect().size
+
+  println("============= Created Index =================")
 
   var appendList = Seq[InternalRow]()
   for (i <- 0 to 5) {
     val row = InternalRow.fromSeq(Seq(i.toLong, (i + 1).toLong, UTF8String.fromString("sdasda")))
-
     appendList = appendList :+ row
   }
+  val testRow = InternalRow.fromSeq(Seq(2199023262994L, 21212L, UTF8String.fromString("sdasda")))
+  appendList = appendList :+ testRow
   println(appendList)
 
-  val idf3 = idf2.appendRows(appendList)
+  val idf3 = idf2.appendRows(appendList).cache()
+  val size1 = idf3.collect().size
 
-  println(idf3.collect().size)
+  println("============== Appended first batch of rows ================")
+
+  val idf4 = idf3.appendRows(appendList)
+  var size2 = 0
+  val plan = idf4.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeBlocked()
+  plan.foreachPartition( it => { size2 += it.size })
+
+  println(" ====================== Appended second batch of rows ==============")
+
+  println("init size = %d, append1 size = %d, append2 size = %d".format(size0, size1, size2))
+  idf4.explain(true)
 
   /*
   //System.exit(0)
