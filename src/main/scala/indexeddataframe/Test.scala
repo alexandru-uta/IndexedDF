@@ -7,7 +7,7 @@ package indexeddataframe
 import java.util
 
 import indexeddataframe.execution.IndexedOperatorExec
-import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import indexeddataframe.implicits._
 import indexeddataframe.logical.ConvertToIndexedOperators
 import org.apache.spark.SparkEnv
@@ -30,21 +30,30 @@ object Test extends App {
     count
   }
 
+  def getIndexedDataFrameSize(idf: DataFrame): Int = {
+    var dfSize = 0
+    val plan = idf.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
+    plan.foreachPartition( it =>  dfSize += it.size )
+    dfSize
+  }
+
   val sparkSession = SparkSession.builder.
     master("local")//spark://alex-macbook.local:7077")
     .appName("spark test app")
+    //.config("spark.logLineage", "true")
     .getOrCreate()
 
   import sparkSession.implicits._
 
   sparkSession.experimental.extraStrategies = (Seq(IndexedOperators) ++ sparkSession.experimental.extraStrategies)
   sparkSession.experimental.extraOptimizations = (Seq(ConvertToIndexedOperators) ++ sparkSession.experimental.extraOptimizations)
+
   var df = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
     .option("delimiter", "|")
-    .option("inferSchema", true)
-    .load("/home/alex/projects/test3.csv")
+    .option("inferSchema", "true")
+    .load("/Users/alexanderuta/projects/test.csv")
 
   df.cache()
   df.collect()
@@ -52,7 +61,9 @@ object Test extends App {
   df = df.repartition(4, $"src")
 
   val idf2 = df.createIndex(0).cache()
-  val size0 = idf2.collect().size
+  var cachedPlan = idf2.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
+  var size0 = 0
+  cachedPlan.foreachPartition(i => size0 += i.size)
 
   println("============= Created Index =================")
 
@@ -63,22 +74,23 @@ object Test extends App {
   }
   val testRow = InternalRow.fromSeq(Seq(2199023262994L, 21212L, UTF8String.fromString("sdasda")))
   appendList = appendList :+ testRow
-  println(appendList)
 
   val idf3 = idf2.appendRows(appendList).cache()
-  val size1 = idf3.collect().size
+  cachedPlan = idf3.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
+  var size1 = 0
+  cachedPlan.foreachPartition(i => size1 += i.size)
 
   println("============== Appended first batch of rows ================")
 
   val idf4 = idf3.appendRows(appendList)
-  var size2 = 0
-  val plan = idf4.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeBlocked()
-  plan.foreachPartition( it => { size2 += it.size })
+  cachedPlan = idf4.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
+  var size2 = 0//idf4.collect().size
+  cachedPlan.foreachPartition(i => size2 += i.size)
 
   println(" ====================== Appended second batch of rows ==============")
 
   println("init size = %d, append1 size = %d, append2 size = %d".format(size0, size1, size2))
-  idf4.explain(true)
+  //idf4.explain(true)
 
   /*
   //System.exit(0)

@@ -16,7 +16,7 @@ object IndexLocalRelation extends Rule[LogicalPlan] {
 }
 
 object ConvertToIndexedOperators extends Rule[LogicalPlan] {
-  def isEncrypted(plan: SparkPlan): Boolean = {
+  def isIndexed(plan: SparkPlan): Boolean = {
     plan.find {
       case _: IndexedOperatorExec => true
       case _ => false
@@ -24,10 +24,10 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
   }
 
   def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
-    case InMemoryRelationMatcher(output, storageLevel, child) if isEncrypted(child) =>
+    case InMemoryRelationMatcher(output, storageLevel, child) if isIndexed(child) =>
       IndexedBlockRDD(
         output,
         Utils.ensureCached(
-          child.asInstanceOf[IndexedOperatorExec].executeBlocked()))
+          child.asInstanceOf[IndexedOperatorExec].executeIndexed()))
   }
 }

@@ -1,5 +1,6 @@
 package indexeddataframe
 
+import indexeddataframe.InternalIndexedDF
 import org.apache.spark.{OneToOneDependency, Partition, SparkEnv, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
@@ -19,6 +20,7 @@ object Utils {
     idf.createIndex(types, colNo)
     idf.appendRows(rows)
 
+/*
     val iter = idf.get(2199023262994L)
     var nRows = 0
     while (iter.hasNext) {
@@ -26,13 +28,13 @@ object Utils {
       iter.next()
     }
     println("this item is repeated %d times on this partition".format(nRows))
+*/
 
     idf
   }
 
   def ensureCached[T](rdd: IRDD, storageLevel: StorageLevel = StorageLevel.MEMORY_ONLY): IRDD = {
-    println(rdd.getStorageLevel + " --------- " + storageLevel)
-
+    //println(rdd.getStorageLevel + " --------- " + storageLevel)
     if (rdd.getStorageLevel == StorageLevel.NONE) {
       rdd.persist(storageLevel)
     } else {
@@ -66,8 +68,7 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
     while (iter2.hasNext) {
       val value = iter2.next()._2
       idf.appendRow(value)
-
-      println("I appended a row!!!")
+      //println("I appended a row!!!")
     }
     Iterator(idf)
   }
@@ -79,18 +80,16 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
       val key = row.get(colNo, LongType).asInstanceOf[Long]
       map.put(key, row)
     })
-
-    println(map)
-
     val updatesRDD = context.parallelize(map.toSeq)
     val partitionedUpdates = updatesRDD.repartition(partitionsRDD.getNumPartitions)
 
-    //partitionedUpdates.foreachPartition( i => println( i.size ))
-
     val result = partitionsRDD.zipPartitions(partitionedUpdates)(zipfunc)
 
-    //result.foreachPartition(it => println(it.size))
+    //result.foreachPartition(it => println("zip result = " + it.next().size))
+    //partitionsRDD.foreachPartition(it => println("initial partitions result = " + it.next().size))
 
-    new IRDD(colNo, result)
+
+    new IRDD(colNo, result.cache())
+    //this
   }
 }

@@ -58,8 +58,7 @@ class InternalIndexedDF[K] {
     val prevCol = new StructField("prev", IntegerType, true)
     this.schema = this.schema.add(prevCol)
     this.indexCol = columnNo
-
-    println(this.schema)
+    //println(this.schema)
   }
 
   /**
@@ -77,8 +76,7 @@ class InternalIndexedDF[K] {
     val prevCol = new StructField("prev", IntegerType, true)
     this.schema = this.schema.add(prevCol)
     this.indexCol = columnNo
-
-    println(this.schema)
+    //println(this.schema)
   }
 
   /**
@@ -187,10 +185,10 @@ class InternalIndexedDF[K] {
     }
     new ScanIterator(resArray)
   }
-}
 
-object InternalIndexedDF {
-  def apply(rows: Seq[InternalRow]) = {
-    new InternalIndexedDF[Long].appendRows(rows)
-  }
+  /**
+    * returns the number of rows in this partition
+    * @return
+    */
+  def size = { nRows }
 }

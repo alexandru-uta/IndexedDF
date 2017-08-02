@@ -28,7 +28,7 @@ trait BinaryExecNode extends SparkPlan {
 }
 
 trait IndexedOperatorExec extends SparkPlan {
-  def executeBlocked(): IRDD
+  def executeIndexed(): IRDD
 
   /**
     * An Indexed operator cannot return rows, so this method should normally not be invoked.
@@ -46,30 +46,27 @@ trait IndexedOperatorExec extends SparkPlan {
 
   override def executeCollect(): Array[InternalRow] = {
       println("executing the collect operator")
-      executeBlocked().collect()
+      executeIndexed().collect()
   }
 
   override def executeTake(n: Int): Array[InternalRow] = {
     println("executing the take operator")
-
     if (n == 0) {
       return new Array[InternalRow](0)
     }
-    executeBlocked().take(n)
+    executeIndexed().take(n)
   }
 }
 
 case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
 
-  override def executeBlocked(): IRDD = {
+  override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
-
     val partitions = child.execute().mapPartitions[InternalIndexedDF[Long]](
       rowIter => Iterator(Utils.doIndexing(colNo, rowIter.toSeq, output.map(_.dataType))),
       true)
     val ret = new IRDD(colNo, partitions)
-
     Utils.ensureCached(ret)
   }
 }
@@ -77,12 +74,9 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
 case class AppendRowsExec(rows: Seq[InternalRow], child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
 
-  override def executeBlocked(): IRDD = {
+  override def executeIndexed(): IRDD = {
     println("executing the appendRows operator")
-
-    val rdd = child.asInstanceOf[IndexedOperatorExec].executeBlocked().appendRows(rows)
-    //val result = rdd.appendRows(rows)
-
+    val rdd = child.asInstanceOf[IndexedOperatorExec].executeIndexed().appendRows(rows)
     Utils.ensureCached(rdd)
   }
 }
@@ -90,11 +84,10 @@ case class AppendRowsExec(rows: Seq[InternalRow], child: SparkPlan) extends Unar
 case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD)
   extends LeafExecNode with IndexedOperatorExec {
 
-  override def executeBlocked(): IRDD = {
+  override def executeIndexed(): IRDD = {
     println("executing the cache() operator")
-
-    println(" !!!!! " +  rdd.getStorageLevel.toString())
-
+    //println(" !!!!!  this is the RDD I got: " +  rdd.id.toString)
+    //println(rdd.toDebugString)
     Utils.ensureCached(rdd)
   }
 }
