@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import org.apache.spark.memory.MemoryMode
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.execution.vectorized.{ColumnVector, ColumnarBatch}
 import org.apache.spark.sql.types.{DataType, IntegerType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Row}
@@ -135,7 +136,7 @@ class InternalIndexedDF[K] {
       ret
     }
     def next(): InternalRow = {
-      val ret = rows(crntRowId)
+      val ret = rows(crntRowId).copy()
       this.crntRowId = rowPointers(crntRowId)
       ret
     }

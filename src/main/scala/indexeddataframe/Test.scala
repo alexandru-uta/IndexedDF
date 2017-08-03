@@ -13,6 +13,7 @@ import indexeddataframe.logical.ConvertToIndexedOperators
 import org.apache.spark.SparkEnv
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.sql.execution.CacheManager
 
 object Test extends App {
 
@@ -33,7 +34,7 @@ object Test extends App {
   def getIndexedDataFrameSize(idf: DataFrame): Int = {
     var dfSize = 0
     val plan = idf.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
-    plan.foreachPartition( it =>  dfSize += it.size )
+    plan.foreachPartition( it => dfSize += it.size )
     dfSize
   }
 
@@ -53,17 +54,12 @@ object Test extends App {
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/test.csv")
+    .load("/home/alex/projects/test3.csv")
 
-  df.cache()
-  df.collect()
-
-  df = df.repartition(4, $"src")
+  df = df.repartition(4, $"src").cache()
 
   val idf2 = df.createIndex(0).cache()
-  var cachedPlan = idf2.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
-  var size0 = 0
-  cachedPlan.foreachPartition(i => size0 += i.size)
+  var size0 = idf2.collect().size
 
   println("============= Created Index =================")
 
@@ -76,21 +72,45 @@ object Test extends App {
   appendList = appendList :+ testRow
 
   val idf3 = idf2.appendRows(appendList).cache()
-  cachedPlan = idf3.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
-  var size1 = 0
-  cachedPlan.foreachPartition(i => size1 += i.size)
+  var size1 = idf3.collect().size
+
+  //idf3.explain(true)
 
   println("============== Appended first batch of rows ================")
 
-  val idf4 = idf3.appendRows(appendList)
-  cachedPlan = idf4.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
-  var size2 = 0//idf4.collect().size
-  cachedPlan.foreachPartition(i => size2 += i.size)
+  val idf4 = idf3.appendRows(appendList).cache()
+  var size2 = idf4.collect().size
 
-  println(" ====================== Appended second batch of rows ==============")
+  println("============== Appended second batch of rows ================")
 
-  println("init size = %d, append1 size = %d, append2 size = %d".format(size0, size1, size2))
-  //idf4.explain(true)
+  val idf5 = idf4.appendRows(appendList).cache()
+  var size3 = idf5.collect().size
+
+  println("============== Appended third batch of rows ================")
+
+  println("init size = %d, append1 size = %d, append2 size = %d, append3 size = %d".format(size0, size1, size2, size3))
+
+  val t1 = System.nanoTime()
+
+  val filteredRowsIDF = idf5.getRows(2199023262994L)
+
+  val t2 = System.nanoTime()
+
+  println(filteredRowsIDF.size)
+
+  df.createOrReplaceTempView("table1")
+  val filteredDF = sparkSession.sql("select * from table1 where src = '2199023262994'")
+
+  val t3 = System.nanoTime()
+  val filteredRowsDF = filteredDF.collect()
+  val t4 = System.nanoTime()
+
+  println("lookup on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
+
+  println(filteredRowsDF.size)
+  //filteredRowsDF.foreach(row => println(row))
+
+  //println(idf3.appendRows(appendList).collect().size)
 
   /*
   //System.exit(0)

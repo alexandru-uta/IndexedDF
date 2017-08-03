@@ -30,6 +30,7 @@ object IndexedOperators extends Strategy {
     case CreateIndex(colNo, child) => CreateIndexExec(colNo, planLater(child)) :: Nil
     case AppendRows(rows, child) => AppendRowsExec(rows, planLater(child)) :: Nil
     case IndexedBlockRDD(output, rdd) => IndexedBlockRDDScanExec(output, rdd) :: Nil
+    case GetRows(key, child) => GetRowsExec(key, planLater(child)) :: Nil
     //case IndexedLocalRelation(output, data) => IndexedLocalTableScanExec(output, data) :: Nil
     case _ => Nil
   }

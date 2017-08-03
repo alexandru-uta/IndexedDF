@@ -15,6 +15,10 @@ case class AppendRows(val rows: Seq[InternalRow], child: LogicalPlan) extends Un
   override def output: Seq[Attribute] = child.output
 }
 
+case class GetRows(val key: Long, child: LogicalPlan) extends UnaryNode {
+  override def output: Seq[Attribute] = child.output
+}
+
 trait IndexedOperator extends LogicalPlan {
   /**
     * Every indexed operator relies on its input having a specific set of columns, so we override

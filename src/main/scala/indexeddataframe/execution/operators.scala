@@ -56,6 +56,11 @@ trait IndexedOperatorExec extends SparkPlan {
     }
     executeIndexed().take(n)
   }
+
+  def executeGetRows(key: Long): Array[InternalRow] = {
+    val resultRDD = executeIndexed().get(key)
+    resultRDD.collect()
+  }
 }
 
 case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
@@ -86,8 +91,18 @@ case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD)
 
   override def executeIndexed(): IRDD = {
     println("executing the cache() operator")
-    //println(" !!!!!  this is the RDD I got: " +  rdd.id.toString)
-    //println(rdd.toDebugString)
+
     Utils.ensureCached(rdd)
+  }
+}
+
+case class GetRowsExec(key: Long, child: SparkPlan) extends UnaryExecNode {
+  override def output: Seq[Attribute] = child.output
+
+  override def doExecute(): RDD[InternalRow] = {
+    val rdd = child.asInstanceOf[IndexedOperatorExec].executeIndexed()
+    val resultRDD = rdd.get(key)
+
+    resultRDD
   }
 }

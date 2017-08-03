@@ -20,7 +20,7 @@ object Utils {
     idf.createIndex(types, colNo)
     idf.appendRows(rows)
 
-/*
+    /*
     val iter = idf.get(2199023262994L)
     var nRows = 0
     while (iter.hasNext) {
@@ -28,7 +28,7 @@ object Utils {
       iter.next()
     }
     println("this item is repeated %d times on this partition".format(nRows))
-*/
+    */
 
     idf
   }
@@ -43,7 +43,7 @@ object Utils {
   }
 }
 
-class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexedDF[Long]])
+class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexedDF[Long]])
   extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
 
   override val partitioner = partitionsRDD.partitioner
@@ -55,15 +55,18 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
   }
 
   override def persist(newLevel: StorageLevel): this.type = {
-    partitionsRDD.persist(newLevel)
+    partitionsRDD = partitionsRDD.persist(newLevel)
     this
   }
 
-  def get(key: Long) = {
-
+  def get(key: Long): RDD[InternalRow] = {
+    val res = partitionsRDD.mapPartitions[InternalRow](
+      part => part.next().get(key)
+    )
+   res
   }
 
-  def zipfunc(iter1: Iterator[InternalIndexedDF[Long]], iter2: Iterator[(Long, InternalRow)] ): Iterator[InternalIndexedDF[Long]] = {
+  def appendZipFunc(iter1: Iterator[InternalIndexedDF[Long]], iter2: Iterator[(Long, InternalRow)] ): Iterator[InternalIndexedDF[Long]] = {
     val idf = iter1.next()
     while (iter2.hasNext) {
       val value = iter2.next()._2
@@ -76,20 +79,17 @@ class IRDD(private val colNo: Int, private val partitionsRDD: RDD[InternalIndexe
   def appendRows(rows: Seq[InternalRow]): IRDD = {
     val map = collection.mutable.Map[Long, InternalRow]()
     rows.foreach( row => {
-      // fix later to get the type properly !!!
+      // !!! fix later to get the type properly, now we just assume the indexed column is of type long !!!
       val key = row.get(colNo, LongType).asInstanceOf[Long]
       map.put(key, row)
     })
+    // make an rdd with the updates
     val updatesRDD = context.parallelize(map.toSeq)
+    // partition it similarly to our current partitions
     val partitionedUpdates = updatesRDD.repartition(partitionsRDD.getNumPartitions)
-
-    val result = partitionsRDD.zipPartitions(partitionedUpdates)(zipfunc)
-
-    //result.foreachPartition(it => println("zip result = " + it.next().size))
-    //partitionsRDD.foreachPartition(it => println("initial partitions result = " + it.next().size))
-
-
-    new IRDD(colNo, result.cache())
-    //this
+    // apply the updates
+    val result = partitionsRDD.zipPartitions(partitionedUpdates)(appendZipFunc)
+    // return a new RDD with the appended rows
+    new IRDD(colNo, result)
   }
 }
