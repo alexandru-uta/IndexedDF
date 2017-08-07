@@ -163,7 +163,7 @@ class InternalIndexedDF[K] {
       (crntElem < nElems)
     }
     def next(): InternalRow = {
-      val ret = rows(crntElem)
+      val ret = rows(crntElem).copy()
       crntElem += 1
       ret
     }
@@ -192,4 +192,11 @@ class InternalIndexedDF[K] {
     * @return
     */
   def size = { nRows }
+
+  def multiget(keys: Seq[K]): Iterator[InternalRow] = {
+
+    keys.foreach( key => Iterator(get(key)))
+    null
+
+  }
 }

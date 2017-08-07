@@ -19,11 +19,12 @@
 package indexeddataframe
 
 import org.apache.spark.sql.Strategy
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.plans.logical.{Join, LogicalPlan}
 import org.apache.spark.sql.execution.SparkPlan
-
 import indexeddataframe.execution._
 import indexeddataframe.logical._
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
 
 object IndexedOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
@@ -31,7 +32,26 @@ object IndexedOperators extends Strategy {
     case AppendRows(rows, child) => AppendRowsExec(rows, planLater(child)) :: Nil
     case IndexedBlockRDD(output, rdd) => IndexedBlockRDDScanExec(output, rdd) :: Nil
     case GetRows(key, child) => GetRowsExec(key, planLater(child)) :: Nil
-    //case IndexedLocalRelation(output, data) => IndexedLocalTableScanExec(output, data) :: Nil
+    case IndexedJoin(left, right, joinType, condition) =>
+      Join(left, right, joinType, condition) match {
+        case ExtractEquiJoinKeys(jointype, leftKeys, rightKeys, condition, lChild, rChild) => {
+
+          println(condition)
+          println(jointype)
+
+          println(leftKeys.map(_.dataType))
+          println(rightKeys.map(_.dataType))
+
+          leftKeys.foreach( k => println(k) )
+          rightKeys.foreach( k => println(k) )
+
+          println(lChild)
+          println(rChild)
+
+          null
+        }
+        case _ => Nil
+      }
     case _ => Nil
   }
 }

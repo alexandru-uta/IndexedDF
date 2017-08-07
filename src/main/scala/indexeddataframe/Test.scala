@@ -18,7 +18,7 @@ import org.apache.spark.sql.execution.CacheManager
 object Test extends App {
 
   val nTimes = 1
-  def getFriends(idf: InternalIndexedDF[Long], myVal: Long): Int = {
+  def getRows(idf: InternalIndexedDF[Long], myVal: Long): Int = {
     var count = 0
     val friendsIter = idf.get(myVal)
     if (friendsIter != null) {
@@ -29,13 +29,6 @@ object Test extends App {
       }
     }
     count
-  }
-
-  def getIndexedDataFrameSize(idf: DataFrame): Int = {
-    var dfSize = 0
-    val plan = idf.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
-    plan.foreachPartition( it => dfSize += it.size )
-    dfSize
   }
 
   val sparkSession = SparkSession.builder.
@@ -54,7 +47,7 @@ object Test extends App {
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/home/alex/projects/test3.csv")
+    .load("/Users/alexanderuta/projects/IndexedDF/test.csv")
 
   df = df.repartition(4, $"src").cache()
 
@@ -108,6 +101,13 @@ object Test extends App {
   println("lookup on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
 
   println(filteredRowsDF.size)
+
+  idf5.createOrReplaceTempView("indexedtable")
+
+  val res = sparkSession.sql("select * from indexedtable join table1 on indexedtable.src = table1.src")
+  res.explain(true)
+
+  res.collect()
   //filteredRowsDF.foreach(row => println(row))
 
   //println(idf3.appendRows(appendList).collect().size)
@@ -124,7 +124,7 @@ object Test extends App {
   var i = 0
   var count = 0
   for (i <- 0 to nTimes) {
-    count = getFriends(idf, 2199023262994L)
+    count = getRows(idf, 2199023262994L)
   }
   val t2 = System.nanoTime()
 

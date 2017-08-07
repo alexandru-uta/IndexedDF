@@ -14,12 +14,20 @@ import scala.reflect.ClassTag
   * Created by alexuta on 18/07/17.
   */
 object Utils {
-  def doIndexing(colNo: Int, rows: Seq[InternalRow], types: Seq[DataType]): InternalIndexedDF[Long] = {
 
+  /**
+    * function that is executed when the index is created on a DataFrame
+    * this function is called for each partition of the original DataFrame and it creates an [[InternalIndexedDF]]
+    * that contains the rows of the partitions and a CTrie for storing an index
+    * @param colNo
+    * @param rows
+    * @param types
+    * @return
+    */
+  def doIndexing(colNo: Int, rows: Seq[InternalRow], types: Seq[DataType]): InternalIndexedDF[Long] = {
     val idf = new InternalIndexedDF[Long]
     idf.createIndex(types, colNo)
     idf.appendRows(rows)
-
     /*
     val iter = idf.get(2199023262994L)
     var nRows = 0
@@ -29,7 +37,6 @@ object Utils {
     }
     println("this item is repeated %d times on this partition".format(nRows))
     */
-
     idf
   }
 
@@ -43,6 +50,12 @@ object Utils {
   }
 }
 
+/**
+  * a custom RDD class that is composed of a number of partitions containing the rows of the
+  * indexed dataframe; each of these partitions is represented as an [[InternalIndexedDF]]
+  * @param colNo
+  * @param partitionsRDD
+  */
 class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexedDF[Long]])
   extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
 
@@ -59,6 +72,11 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     this
   }
 
+  /**
+    * RDD function that returns an RDD of the rows containing the search key
+    * @param key
+    * @return
+    */
   def get(key: Long): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => part.next().get(key)
@@ -66,6 +84,19 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
    res
   }
 
+  def multiget(keys: Seq[Long]): RDD[InternalRow] = {
+    val res = partitionsRDD.mapPartitions[InternalRow](
+      part => part.next().multiget(keys)
+    )
+    res
+  }
+
+  /**
+    * helper function for appending rows in the InternalIndexedDF object
+    * @param iter1 -> this is an iterator containing the original data
+    * @param iter2 -> this is an iterator containing the rows to be inserted
+    * @return -> returns an iterator containing the updated rows
+    */
   def appendZipFunc(iter1: Iterator[InternalIndexedDF[Long]], iter2: Iterator[(Long, InternalRow)] ): Iterator[InternalIndexedDF[Long]] = {
     val idf = iter1.next()
     while (iter2.hasNext) {
@@ -76,6 +107,12 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     Iterator(idf)
   }
 
+  /**
+    * RDD function that appends a list of rows to the current data
+    * the list of rows is partitioned here such that each row goes to the partition that is supposed to contain that key
+    * @param rows
+    * @return
+    */
   def appendRows(rows: Seq[InternalRow]): IRDD = {
     val map = collection.mutable.Map[Long, InternalRow]()
     rows.foreach( row => {
