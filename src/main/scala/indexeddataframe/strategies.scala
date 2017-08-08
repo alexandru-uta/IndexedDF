@@ -32,6 +32,7 @@ object IndexedOperators extends Strategy {
     case AppendRows(rows, child) => AppendRowsExec(rows, planLater(child)) :: Nil
     case IndexedBlockRDD(output, rdd) => IndexedBlockRDDScanExec(output, rdd) :: Nil
     case GetRows(key, child) => GetRowsExec(key, planLater(child)) :: Nil
+    case IndexedFilter(condition, child) => IndexedFilterExec(condition, planLater(child)) :: Nil
     case IndexedJoin(left, right, joinType, condition) =>
       Join(left, right, joinType, condition) match {
         case ExtractEquiJoinKeys(jointype, leftKeys, rightKeys, condition, lChild, rChild) => {
@@ -45,10 +46,28 @@ object IndexedOperators extends Strategy {
           leftKeys.foreach( k => println(k) )
           rightKeys.foreach( k => println(k) )
 
-          println(lChild)
-          println(rChild)
+          println(lChild.output)
+          println(rChild.output)
 
-          null
+          // compute the index of the left side keys == column number
+          var leftColNo = 0
+          var i = 0
+          lChild.output.foreach( col => {
+            if (col == leftKeys(0)) leftColNo = i
+            i += 1
+          })
+
+          // compute the index of the right side keys == column number
+          var rightColNo = 0
+          i = 0
+          rChild.output.foreach( col => {
+            if (col == rightKeys(0)) rightColNo = i
+            i += 1
+          })
+
+          println("leftcol = %d, rightcol = %d".format(leftColNo, rightColNo))
+
+          IndexedEquiJoinExec(planLater(left), planLater(right), leftColNo, rightColNo) :: Nil
         }
         case _ => Nil
       }

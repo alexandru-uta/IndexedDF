@@ -3,10 +3,11 @@ package indexeddataframe.logical
 import indexeddataframe.execution.IndexedOperatorExec
 import indexeddataframe.{IRDD, Utils}
 import org.apache.spark.sql.InMemoryRelationMatcher
-import org.apache.spark.sql.catalyst.plans.logical.{Join, LocalRelation, LogicalPlan}
+import org.apache.spark.sql.catalyst.plans.logical.{Filter, Join, LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 import indexeddataframe.logical.IndexedJoin
+
 import scala.collection.concurrent.TrieMap
 
 object IndexLocalRelation extends Rule[LogicalPlan] {
@@ -51,7 +52,10 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
       IndexedBlockRDD(output, getIfCached(child))
 
     case p @ Join(left, right, joinType, condition) if isIndexed(p) =>
-      IndexedJoin(left, right, joinType, condition)
+      IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)
+
+    case p @ Filter(condition, child) if isIndexed(child) =>
+      IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
 
   }
 }

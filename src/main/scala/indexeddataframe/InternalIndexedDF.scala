@@ -154,7 +154,7 @@ class InternalIndexedDF[K] {
   }
 
   /**
-    * iterator to the entire structure
+    * iterator through an array of InternalRow
     */
   class ScanIterator(rows: ArrayBuffer[InternalRow]) extends Iterator[InternalRow] {
     val nElems = rows.size
@@ -163,16 +163,19 @@ class InternalIndexedDF[K] {
       (crntElem < nElems)
     }
     def next(): InternalRow = {
-      val ret = rows(crntElem).copy()
+      val ret = rows(crntElem)
       crntElem += 1
       ret
     }
+    override def size: Int = {nElems}
+    override def length: Int = {nElems}
   }
+
   /**
     * iterator function imposed by the RDD interface
     */
   def iterator(): Iterator[InternalRow] = {
-    val resArray = new ArrayBuffer[InternalRow]
+    /* val resArray = new ArrayBuffer[InternalRow]
     val iter = index.iterator
     while (iter.hasNext) {
       val crntEntry = iter.next()
@@ -183,8 +186,8 @@ class InternalIndexedDF[K] {
       while (rows.hasNext) {
         resArray.append(rows.next())
       }
-    }
-    new ScanIterator(resArray)
+    } */
+    new ScanIterator(rows)
   }
 
   /**
@@ -193,13 +196,25 @@ class InternalIndexedDF[K] {
     */
   def size = { nRows }
 
-  def multiget(keys: Seq[K]): Iterator[InternalRow] = {
 
-    keys.foreach( key => Iterator(get(key)))
-    null
-
-
-    
-
+  /**
+    * a multiget function that returns an Iterator of InternalRow
+    * @param keys
+    * @return
+    */
+  def multiget(keys: ArrayBuffer[K]): Iterator[InternalRow] = {
+    //println(keys.size)
+    val resArray = new ArrayBuffer[InternalRow]
+    keys.foreach( key => {
+      //println(key)
+      val rowIter = get(key)
+      while (rowIter.hasNext) {
+        resArray.append(rowIter.next())
+      }
+      //println(key)
+    })
+    println(resArray.size)
+    if (resArray.size > 0) new ScanIterator(resArray)
+    else new ScanIterator(new ArrayBuffer[InternalRow](0))
   }
 }

@@ -82,3 +82,7 @@ case class IndexedJoin(left: LogicalPlan,
 
   override def output: Seq[Attribute] = left.output ++ right.output
 }
+
+case class IndexedFilter(condition: Expression, child:IndexedOperator) extends UnaryNode with IndexedOperator {
+  override def output: Seq[Attribute] = child.output
+}

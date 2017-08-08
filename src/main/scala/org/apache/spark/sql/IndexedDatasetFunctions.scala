@@ -21,6 +21,8 @@ import indexeddataframe.execution.IndexedOperatorExec
 import indexeddataframe.logical.{AppendRows, CreateIndex, GetRows}
 import org.apache.spark.sql.catalyst.InternalRow
 
+import scala.collection.mutable.ArrayBuffer
+
 class IndexedDatasetFunctions[T](ds: Dataset[T]) extends Serializable {
   def createIndex(colNo: Int): DataFrame = {
     Dataset.ofRows(ds.sparkSession, CreateIndex(colNo, ds.logicalPlan))
@@ -31,5 +33,9 @@ class IndexedDatasetFunctions[T](ds: Dataset[T]) extends Serializable {
   def getRows(key: Long): Array[InternalRow] = {
     //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
     ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeGetRows(key)
+  }
+  def multigetRows(keys: ArrayBuffer[Long]): Array[InternalRow] = {
+    //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
+    ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeMultiGetRows(keys)
   }
 }

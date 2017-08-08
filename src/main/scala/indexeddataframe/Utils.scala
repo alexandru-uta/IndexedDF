@@ -8,6 +8,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types.{DataType, LongType}
 import org.apache.spark.storage.StorageLevel
 
+import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
 /**
@@ -84,11 +85,26 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
    res
   }
 
-  def multiget(keys: Seq[Long]): RDD[InternalRow] = {
+  /**
+    * RDD method that returns an RDD of rows containing the searched keys
+    * @param keys
+    * @return
+    */
+  def multiget(keys: ArrayBuffer[Long]): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => part.next().multiget(keys)
     )
     res
+  }
+
+  /**
+    * RDD method that performs a multiget with keys from a RDD[InternalRow]
+    * each row in this RDD only contains a column == the key
+    * @param keysRDD
+    * @return
+    */
+  def multigetRDD(keysRDD: RDD[InternalRow]): RDD[InternalRow] = {
+    null
   }
 
   /**

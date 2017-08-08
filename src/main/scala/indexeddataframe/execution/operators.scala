@@ -3,9 +3,12 @@ package indexeddataframe.execution
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeProjection}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.types.LongType
+
+import scala.collection.mutable.ArrayBuffer
 
 trait LeafExecNode extends SparkPlan {
   override final def children: Seq[SparkPlan] = Nil
@@ -61,6 +64,11 @@ trait IndexedOperatorExec extends SparkPlan {
     val resultRDD = executeIndexed().get(key)
     resultRDD.collect()
   }
+
+  def executeMultiGetRows(keys: ArrayBuffer[Long]): Array[InternalRow] = {
+    val resultRDD = executeIndexed().multiget(keys)
+    resultRDD.collect()
+  }
 }
 
 case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
@@ -105,4 +113,49 @@ case class GetRowsExec(key: Long, child: SparkPlan) extends UnaryExecNode {
 
     resultRDD
   }
+}
+
+case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
+  override def output: Seq[Attribute] = child.output
+  override def executeIndexed(): IRDD = child.asInstanceOf[IndexedOperatorExec].executeIndexed()
+}
+
+case class IndexedEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
+
+  override def output: Seq[Attribute] = left.output
+
+  override def doExecute(): RDD[InternalRow] = {
+    println("in the JOIN operator")
+
+    val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
+    val rightRDD = right.execute()
+
+    // create a projection that contains only the column of interest for the join
+    //val rightProj = rightRows.mapPartitions( part => {
+    //  val proj = UnsafeProjection.create(Seq(right.output(rightCol)), right.output)
+    //  part.map( row => proj(row) )
+    //})
+
+    val rows = rightRDD.collect()
+    val buffer = new ArrayBuffer[Long]()
+    var i = 0
+    rows.foreach( row => {
+      println(row.copy().toString)
+      val key = row.copy().get(rightCol, LongType).asInstanceOf[Long]
+      println(key + " - " + i)
+      buffer.append(key)
+      i += 1
+    } )
+
+    //println(buffer.size)
+
+    //val result = leftRDD.multiget(buffer)
+
+    //result.collect().foreach( row => println(row.toString) )
+
+    //result
+
+    null
+  }
+
 }
