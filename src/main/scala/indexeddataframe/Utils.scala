@@ -80,8 +80,7 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     */
   def get(key: Long): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
-      part => part.next().get(key)
-    )
+      part => part.next().get(key), true)
    res
   }
 
@@ -92,8 +91,7 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     */
   def multiget(keys: ArrayBuffer[Long]): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
-      part => part.next().multiget(keys)
-    )
+      part => part.next().multiget(keys), true)
     res
   }
 
@@ -141,7 +139,7 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     // partition it similarly to our current partitions
     val partitionedUpdates = updatesRDD.repartition(partitionsRDD.getNumPartitions)
     // apply the updates
-    val result = partitionsRDD.zipPartitions(partitionedUpdates)(appendZipFunc)
+    val result = partitionsRDD.zipPartitions(partitionedUpdates, true)(appendZipFunc)
     // return a new RDD with the appended rows
     new IRDD(colNo, result)
   }

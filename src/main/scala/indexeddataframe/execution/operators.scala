@@ -131,23 +131,18 @@ case class IndexedEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, 
     val rightRDD = right.execute()
 
     // create a projection that contains only the column of interest for the join
-    //val rightProj = rightRows.mapPartitions( part => {
+    //val rightProj = rightRDD.mapPartitions( part => {
     //  val proj = UnsafeProjection.create(Seq(right.output(rightCol)), right.output)
     //  part.map( row => proj(row) )
     //})
 
-    val rows = rightRDD.collect()
-    val buffer = new ArrayBuffer[Long]()
-    var i = 0
-    rows.foreach( row => {
-      println(row.copy().toString)
-      val key = row.copy().get(rightCol, LongType).asInstanceOf[Long]
-      println(key + " - " + i)
-      buffer.append(key)
-      i += 1
-    } )
-
+    //rightProj.foreach( r => println(r.toString) )
+    //values.foreach( v => println(v) )
     //println(buffer.size)
+
+    val pairRDD = rightRDD.map( row => (row.get(0, LongType).asInstanceOf[Long], row))
+    //pairRDD.foreach( r => println(r._1))
+
 
     //val result = leftRDD.multiget(buffer)
 

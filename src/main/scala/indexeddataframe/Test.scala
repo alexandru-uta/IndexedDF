@@ -50,18 +50,19 @@ object Test extends App {
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pkp2.csv")
+    .load("/home/alex/projects/IndexedDF/pkp2.csv")
 
   var smallDF = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pers2.csv")
+    .load("/home/alex/projects/IndexedDF/pers2.csv")
 
   df = df.repartition(4, $"src").cache()
-  smallDF = smallDF.cache()
-  smallDF.collect()
+  //smallDF = smallDF.cache()
+  //smallDF.collect()
+  smallDF.show(100)
 
   val idf2 = df.createIndex(0).cache()
   var size0 = idf2.collect().size
@@ -118,7 +119,7 @@ object Test extends App {
   idf2.createOrReplaceTempView("indexedtable")
   smallDF.createOrReplaceTempView("smalltable")
 
-  val res = sparkSession.sql("SELECT indexedtable.src, indexedtable.dst, indexedtable.creationDate " +
+  val res = sparkSession.sql("SELECT * " +
                              "FROM indexedtable " +
                              "JOIN smalltable " +
                              "ON indexedtable.src = smalltable.id")
@@ -131,7 +132,7 @@ object Test extends App {
   plan.foreachPartition( p => size += p.size )
   t4 = System.nanoTime()
 
-  res.show(100)
+  //res.show(100)
 
   println("join on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
   println(" join size on IDF = %d, on DF = %d".format(0, size))
