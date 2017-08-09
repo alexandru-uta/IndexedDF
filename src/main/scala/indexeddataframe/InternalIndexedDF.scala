@@ -202,18 +202,16 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multiget(keys: ArrayBuffer[K]): Iterator[InternalRow] = {
-    //println(keys.size)
+  def multiget(keys: Array[K]): Iterator[InternalRow] = {
+    //println("multiget input size = " + keys.size)
     val resArray = new ArrayBuffer[InternalRow]
     keys.foreach( key => {
-      //println(key)
       val rowIter = get(key)
       while (rowIter.hasNext) {
         resArray.append(rowIter.next())
       }
-      //println(key)
     })
-    println(resArray.size)
+    //println("multiget size = " + resArray.size)
     if (resArray.size > 0) new ScanIterator(resArray)
     else new ScanIterator(new ArrayBuffer[InternalRow](0))
   }

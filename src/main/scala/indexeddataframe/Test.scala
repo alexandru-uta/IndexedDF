@@ -34,10 +34,11 @@ object Test extends App {
   }
 
   val sparkSession = SparkSession.builder.
-    master("local")//spark://alex-macbook.local:7077")
+    master("local")
+    //master("spark://Rams-MacBook-Pro-2.local:7077")
     .appName("spark test app")
     //.config("spark.logLineage", "true")
-      .config("spark.driver.maxResultSize", "8g")
+    .config("spark.driver.maxResultSize", "8g")
     .getOrCreate()
 
   import sparkSession.implicits._
@@ -50,22 +51,24 @@ object Test extends App {
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/home/alex/projects/IndexedDF/pkp2.csv")
+    .load("/Users/alexanderuta/projects/IndexedDF/pkp2.csv")
 
   var smallDF = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/home/alex/projects/IndexedDF/pers2.csv")
+    .load("/Users/alexanderuta/projects/IndexedDF/pers2.csv")
 
-  df = df.repartition(4, $"src").cache()
-  //smallDF = smallDF.cache()
-  //smallDF.collect()
-  smallDF.show(100)
+  df = df.cache()
+  smallDF = smallDF.cache()
+  smallDF.collect()
+  //smallDF.show(100)
 
   val idf2 = df.createIndex(0).cache()
   var size0 = idf2.collect().size
+
+  //idf2.show(1000)
 
   /*
   println("============= Created Index =================")
@@ -100,12 +103,13 @@ object Test extends App {
   */
 
   var t1 = System.nanoTime()
-  val filteredRowsIDF = idf2.multigetRows(ArrayBuffer(32985348972561L, 2199023262994L, 10008L, 9998L, 1L, 9995L))
+  val filteredRowsIDF = idf2.multigetRows(Array(2199023262994L, 32985348972561L, 2199023262994L, 10008L, 9998L, 1L, 9995L))
   var t2 = System.nanoTime()
   val szIDF = filteredRowsIDF.size
+  //filteredRowsIDF.foreach( row => println(row.toString()) )
 
   df.createOrReplaceTempView("table1")
-  val filteredDF = sparkSession.sql("select * from table1 where src = '32985348972561'")
+  val filteredDF = sparkSession.sql("select * from table1 where src = '2199023262994'")
 
   var t3 = System.nanoTime()
   val filteredRowsDF = filteredDF.collect()
@@ -123,19 +127,31 @@ object Test extends App {
                              "FROM indexedtable " +
                              "JOIN smalltable " +
                              "ON indexedtable.src = smalltable.id")
-  res.explain(true)
+  //res.explain(true)
+
+  t1 = System.nanoTime()
+  //res.collect()
+  var size1 = 0
+  var plan = res.queryExecution.executedPlan.execute()
+  plan.foreachPartition( p => size1 += p.size )
+  t2 = System.nanoTime()
+
+  //res.show(100)
+  val res2 = sparkSession.sql("SELECT * " +
+    "FROM table1 " +
+    "JOIN smalltable " +
+    "ON table1.src = smalltable.id")
+  //res.explain(true)
 
   t3 = System.nanoTime()
   //res.collect()
-  var size = 0
-  val plan = res.queryExecution.executedPlan.execute()
-  plan.foreachPartition( p => size += p.size )
+  var size2 = 0
+  plan = res2.queryExecution.executedPlan.execute()
+  plan.foreachPartition( p => size2 += p.size )
   t4 = System.nanoTime()
 
-  //res.show(100)
-
   println("join on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
-  println(" join size on IDF = %d, on DF = %d".format(0, size))
+  println("join size on IDF = %d, on DF = %d".format(size1, size2))
 
   sparkSession.close()
   sparkSession.stop()

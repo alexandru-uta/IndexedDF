@@ -5,6 +5,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeProjection}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
+import org.apache.spark.{HashPartitioner, RangePartitioner}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.types.LongType
 
@@ -65,7 +66,7 @@ trait IndexedOperatorExec extends SparkPlan {
     resultRDD.collect()
   }
 
-  def executeMultiGetRows(keys: ArrayBuffer[Long]): Array[InternalRow] = {
+  def executeMultiGetRows(keys: Array[Long]): Array[InternalRow] = {
     val resultRDD = executeIndexed().multiget(keys)
     resultRDD.collect()
   }
@@ -76,7 +77,17 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
 
   override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
-    val partitions = child.execute().mapPartitions[InternalIndexedDF[Long]](
+
+    // we need to repartition when creating the Index in order to know how to partition the appends and join probes
+    val pairLongRow = child.execute().map ( row => (row.get(colNo, LongType).asInstanceOf[Long], row.copy()) )
+    val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
+    val repartitionedRDD = repartitionedPair.mapPartitions[InternalRow]( r => {
+      val part = r.toSeq.map( x => x._2.copy() )
+      part.toIterator
+    }, true)
+    //repartitionedRDD.collect()
+
+    val partitions = repartitionedRDD.mapPartitions[InternalIndexedDF[Long]](
       rowIter => Iterator(Utils.doIndexing(colNo, rowIter.toSeq, output.map(_.dataType))),
       true)
     val ret = new IRDD(colNo, partitions)
@@ -130,27 +141,27 @@ case class IndexedEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, 
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = right.execute()
 
-    // create a projection that contains only the column of interest for the join
-    //val rightProj = rightRDD.mapPartitions( part => {
-    //  val proj = UnsafeProjection.create(Seq(right.output(rightCol)), right.output)
-    //  part.map( row => proj(row) )
-    //})
+    var pairRDD = rightRDD.map( row => {
+      val key = row.get(rightCol, LongType).asInstanceOf[Long]
+      //key
+       (key, row)
+    })
 
-    //rightProj.foreach( r => println(r.toString) )
-    //values.foreach( v => println(v) )
-    //println(buffer.size)
+    pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
 
-    val pairRDD = rightRDD.map( row => (row.get(0, LongType).asInstanceOf[Long], row))
-    //pairRDD.foreach( r => println(r._1))
-
-
-    //val result = leftRDD.multiget(buffer)
-
-    //result.collect().foreach( row => println(row.toString) )
-
-    //result
-
-    null
+    val result = leftRDD.partitionsRDD.zipPartitions(pairRDD, true) { (leftIter, rightIter) =>
+      if (leftIter.hasNext) {
+        val keys = new ArrayBuffer[Long]
+        while (rightIter.hasNext) {
+          val key = rightIter.next()._1
+          keys.append(key)
+        }
+        leftIter.next().multiget(keys.toArray)
+      }
+      else Iterator(null)
+    }
+    //val result = leftRDD.multiget(pairRDD.collect())
+    result
   }
 
 }

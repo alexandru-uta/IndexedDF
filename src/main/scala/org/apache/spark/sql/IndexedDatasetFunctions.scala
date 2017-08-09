@@ -34,7 +34,7 @@ class IndexedDatasetFunctions[T](ds: Dataset[T]) extends Serializable {
     //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
     ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeGetRows(key)
   }
-  def multigetRows(keys: ArrayBuffer[Long]): Array[InternalRow] = {
+  def multigetRows(keys: Array[Long]): Array[InternalRow] = {
     //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
     ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeMultiGetRows(keys)
   }

@@ -1,7 +1,7 @@
 package indexeddataframe
 
 import indexeddataframe.InternalIndexedDF
-import org.apache.spark.{OneToOneDependency, Partition, SparkEnv, TaskContext}
+import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
@@ -15,6 +15,9 @@ import scala.reflect.ClassTag
   * Created by alexuta on 18/07/17.
   */
 object Utils {
+
+  def defaultNoPartitions: Int = 16
+  val defaultPartitioner: HashPartitioner = new HashPartitioner(defaultNoPartitions)
 
   /**
     * function that is executed when the index is created on a DataFrame
@@ -30,7 +33,7 @@ object Utils {
     idf.createIndex(types, colNo)
     idf.appendRows(rows)
     /*
-    val iter = idf.get(2199023262994L)
+    val iter = idf.get(32985348972561L)
     var nRows = 0
     while (iter.hasNext) {
       nRows += 1
@@ -41,6 +44,13 @@ object Utils {
     idf
   }
 
+  /**
+    * function that ensures an RDD is cached
+    * @param rdd
+    * @param storageLevel
+    * @tparam T
+    * @return
+    */
   def ensureCached[T](rdd: IRDD, storageLevel: StorageLevel = StorageLevel.MEMORY_ONLY): IRDD = {
     //println(rdd.getStorageLevel + " --------- " + storageLevel)
     if (rdd.getStorageLevel == StorageLevel.NONE) {
@@ -57,7 +67,7 @@ object Utils {
   * @param colNo
   * @param partitionsRDD
   */
-class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexedDF[Long]])
+class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
   extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
 
   override val partitioner = partitionsRDD.partitioner
@@ -79,6 +89,7 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     * @return
     */
   def get(key: Long): RDD[InternalRow] = {
+    println("I have this many partitions: " + partitionsRDD.getNumPartitions)
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => part.next().get(key), true)
    res
@@ -89,20 +100,34 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     * @param keys
     * @return
     */
-  def multiget(keys: ArrayBuffer[Long]): RDD[InternalRow] = {
+  def multiget(keys: Array[Long]): RDD[InternalRow] = {
+    //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => part.next().multiget(keys), true)
     res
+
   }
 
   /**
-    * RDD method that performs a multiget with keys from a RDD[InternalRow]
-    * each row in this RDD only contains a column == the key
-    * @param keysRDD
+    * RDD method that performs a multiget by means of partitioning the input keys
+    * and sending them to their appropriate partitions
+    * should only probably be used in case the input array is very large,
+    * otherwise multiget works pretty well
+    * @param keys
     * @return
     */
-  def multigetRDD(keysRDD: RDD[InternalRow]): RDD[InternalRow] = {
-    null
+  def multigetPartitioned(keys: Array[Long]): RDD[InternalRow] = {
+    val kMap = keys.map( k => (k, 1))
+    var kRDD = context.parallelize(kMap)
+    kRDD = kRDD.partitionBy(Utils.defaultPartitioner)
+
+    partitionsRDD.zipPartitions(kRDD, true) { (iterLeft, iterRight) =>
+      val kBuf = new ArrayBuffer[Long]
+      while (iterRight.hasNext) {
+        kBuf.append(iterRight.next()._1)
+      }
+      iterLeft.next().multiget(kBuf.toArray)
+    }
   }
 
   /**
@@ -137,7 +162,7 @@ class IRDD(private val colNo: Int, private var partitionsRDD: RDD[InternalIndexe
     // make an rdd with the updates
     val updatesRDD = context.parallelize(map.toSeq)
     // partition it similarly to our current partitions
-    val partitionedUpdates = updatesRDD.repartition(partitionsRDD.getNumPartitions)
+    val partitionedUpdates = updatesRDD.partitionBy(Utils.defaultPartitioner)
     // apply the updates
     val result = partitionsRDD.zipPartitions(partitionedUpdates, true)(appendZipFunc)
     // return a new RDD with the appended rows
