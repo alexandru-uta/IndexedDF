@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import org.apache.spark.memory.MemoryMode
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.apache.spark.sql.catalyst.expressions.{Attribute, JoinedRow, UnsafeProjection}
 import org.apache.spark.sql.execution.vectorized.{ColumnVector, ColumnarBatch}
 import org.apache.spark.sql.types.{DataType, IntegerType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Row}
@@ -214,5 +214,34 @@ class InternalIndexedDF[K] {
     //println("multiget size = " + resArray.size)
     if (resArray.size > 0) new ScanIterator(resArray)
     else new ScanIterator(new ArrayBuffer[InternalRow](0))
+  }
+
+  /**
+    * a similar multiget, but this one returns joined rows, composed of left + right joined rows
+    * we need the projection as a parameter to convert back to unsafe rows
+    * @param keys
+    * @return
+    */
+  def multigetJoined(keys: Iterator[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
+    val resultArray = new ArrayBuffer[InternalRow]
+    val proj = UnsafeProjection.create(output, output.map(_.withNullability(true)))
+
+    while (keys.hasNext) {
+      val pair = keys.next()
+      val key = pair._1
+      val row = pair._2
+
+      val localRows = get(key.asInstanceOf[K])
+      while (localRows.hasNext) {
+        val localRow = localRows.next()
+
+        val joinedRow = new JoinedRow
+        joinedRow.withLeft(localRow)
+        joinedRow.withRight(row)
+
+        resultArray.append(proj(joinedRow).copy())
+      }
+    }
+    new ScanIterator(resultArray)
   }
 }

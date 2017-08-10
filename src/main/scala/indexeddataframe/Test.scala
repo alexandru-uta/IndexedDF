@@ -51,14 +51,14 @@ object Test extends App {
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pkp2.csv")
+    .load("/home/alex/projects/IndexedDF/pkp2.csv")
 
   var smallDF = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pers2.csv")
+    .load("/home/alex/projects/IndexedDF/pers2.csv")
 
   df = df.cache()
   smallDF = smallDF.cache()
@@ -103,7 +103,7 @@ object Test extends App {
   */
 
   var t1 = System.nanoTime()
-  val filteredRowsIDF = idf2.multigetRows(Array(2199023262994L, 32985348972561L, 2199023262994L, 10008L, 9998L, 1L, 9995L))
+  val filteredRowsIDF = idf2.multigetRows(Array(2199023262994L))//, 32985348972561L, 2199023262994L, 10008L, 9998L, 1L, 9995L))
   var t2 = System.nanoTime()
   val szIDF = filteredRowsIDF.size
   //filteredRowsIDF.foreach( row => println(row.toString()) )
@@ -152,6 +152,9 @@ object Test extends App {
 
   println("join on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
   println("join size on IDF = %d, on DF = %d".format(size1, size2))
+
+  //res.show(1200)
+  //res.write.option("header", "true").csv("result.csv")
 
   sparkSession.close()
   sparkSession.stop()

@@ -5,11 +5,10 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeProjection}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
-import org.apache.spark.{HashPartitioner, RangePartitioner}
+import org.apache.spark.sql.catalyst.plans.LeftExistence
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.types.LongType
 
-import scala.collection.mutable.ArrayBuffer
 
 trait LeafExecNode extends SparkPlan {
   override final def children: Seq[SparkPlan] = Nil
@@ -131,12 +130,19 @@ case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends Un
   override def executeIndexed(): IRDD = child.asInstanceOf[IndexedOperatorExec].executeIndexed()
 }
 
-case class IndexedEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
+case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
 
-  override def output: Seq[Attribute] = left.output
+  override def output: Seq[Attribute] = left.output ++ right.output
+
+  protected def createResultProjection(): UnsafeProjection =  {
+      // Always put the stream side on left to simplify implementation
+      // both of left and right side could be null
+      UnsafeProjection.create(
+        output, (left.output ++ right.output).map(_.withNullability(true)))
+  }
 
   override def doExecute(): RDD[InternalRow] = {
-    println("in the JOIN operator")
+    println("in the Shuffled JOIN operator")
 
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = right.execute()
@@ -144,24 +150,47 @@ case class IndexedEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, 
     var pairRDD = rightRDD.map( row => {
       val key = row.get(rightCol, LongType).asInstanceOf[Long]
       //key
-       (key, row)
+       (key, row.copy())
     })
 
+    // repartition in the same way as the Indexed Data Frame
     pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
 
     val result = leftRDD.partitionsRDD.zipPartitions(pairRDD, true) { (leftIter, rightIter) =>
       if (leftIter.hasNext) {
-        val keys = new ArrayBuffer[Long]
-        while (rightIter.hasNext) {
-          val key = rightIter.next()._1
-          keys.append(key)
-        }
-        leftIter.next().multiget(keys.toArray)
+        val result = leftIter.next().multigetJoined(rightIter, output)
+        result
       }
       else Iterator(null)
     }
-    //val result = leftRDD.multiget(pairRDD.collect())
     result
   }
 
+}
+
+case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
+
+  override def output: Seq[Attribute] = left.output ++ right.output
+
+  protected def createResultProjection(): UnsafeProjection =  {
+    // Always put the stream side on left to simplify implementation
+    // both of left and right side could be null
+    UnsafeProjection.create(
+      output, (left.output ++ right.output).map(_.withNullability(true)))
+  }
+
+  override def doExecute(): RDD[InternalRow] = {
+    println("in the Broadcast JOIN operator")
+
+    val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
+    val rightRDD = right.execute()
+
+    var pairRDD = rightRDD.map( row => {
+      val key = row.get(rightCol, LongType).asInstanceOf[Long]
+      (key, row.copy())
+    })
+
+    val result = leftRDD.multigetJoined(pairRDD.collect(), output)
+    result
+  }
 }

@@ -5,6 +5,7 @@ import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection}
 import org.apache.spark.sql.types.{DataType, LongType}
 import org.apache.spark.storage.StorageLevel
 
@@ -106,6 +107,19 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
       part => part.next().multiget(keys), true)
     res
 
+  }
+
+  /**
+    * RDD method that returns an RDD of rows containing the searched keys in a JOIN scenario
+    * the returned rows contain both left and right rows
+    * @param keys
+    * @return
+    */
+  def multigetJoined(keys: Array[(Long, InternalRow)], output: Seq[Attribute]): RDD[InternalRow] = {
+    //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
+    val res = partitionsRDD.mapPartitions[InternalRow](
+      part => part.next().multigetJoined(keys.toIterator, output), true)
+    res
   }
 
   /**
