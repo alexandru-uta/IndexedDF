@@ -118,7 +118,7 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
   def multigetJoined(keys: Array[(Long, InternalRow)], output: Seq[Attribute]): RDD[InternalRow] = {
     //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
     val res = partitionsRDD.mapPartitions[InternalRow](
-      part => part.next().multigetJoined(keys.toIterator, output), true)
+      part => part.next().multigetJoined(keys, output), true)
     res
   }
 

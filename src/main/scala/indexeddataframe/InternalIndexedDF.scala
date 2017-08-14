@@ -222,17 +222,24 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multigetJoined(keys: Iterator[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
+  def multigetJoined(keys: Array[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
     val t1 = System.nanoTime()
     val resultArray = new ArrayBuffer[InternalRow]
     val proj = UnsafeProjection.create(output, output.map(_.withNullability(true)))
 
-    while (keys.hasNext) {
-      val pair = keys.next()
+    var uniqueKeys = 0
+
+    var i = 0
+    val size = keys.size
+    while (i < size) {
+      val pair = keys(i)
+      i += 1
+
       val key = pair._1
       val row = pair._2
 
       val localRows = get(key.asInstanceOf[K])
+      if (localRows.hasNext) uniqueKeys += 1
       while (localRows.hasNext) {
         val localRow = localRows.next()
 
@@ -245,7 +252,8 @@ class InternalIndexedDF[K] {
     }
     val result = new ScanIterator(resultArray)
     val t2 = System.nanoTime()
-    println("multigetJoined on InternalIndexedDF took %f for returning %d rows".format((t2-t1)/1000000.0, result.size))
+    val totTime = (t2 - t1) / 1000000.0
+    println("multigetJoined on InternalIndexedDF took %f for returning %d rows (%d unique), tput = %f rows/ms".format(totTime, result.size, uniqueKeys, result.size/totTime))
 
     result
   }

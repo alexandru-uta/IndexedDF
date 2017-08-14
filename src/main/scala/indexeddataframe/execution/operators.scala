@@ -158,7 +158,7 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
 
     val result = leftRDD.partitionsRDD.zipPartitions(pairRDD, true) { (leftIter, rightIter) =>
       if (leftIter.hasNext) {
-        val result = leftIter.next().multigetJoined(rightIter, output)
+        val result = leftIter.next().multigetJoined(rightIter.toArray, output)
         result
       }
       else Iterator(null)
@@ -191,11 +191,11 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
     })
 
     var t1 = System.nanoTime()
-    val broadcastedRDD = sparkContext.broadcast(pairRDD.collect())
+    val broadcastedRDD = pairRDD.collect()//sparkContext.broadcast(pairRDD.collect())
     var t2 = System.nanoTime()
     println("collecting and broadcasting took %f".format((t2-t1)/1000000.0))
 
-    val result = leftRDD.multigetJoined(broadcastedRDD.value, output)
+    val result = leftRDD.multigetJoined(broadcastedRDD, output)
     result
   }
 }
