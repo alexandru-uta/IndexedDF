@@ -223,6 +223,7 @@ class InternalIndexedDF[K] {
     * @return
     */
   def multigetJoined(keys: Iterator[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
+    val t1 = System.nanoTime()
     val resultArray = new ArrayBuffer[InternalRow]
     val proj = UnsafeProjection.create(output, output.map(_.withNullability(true)))
 
@@ -242,6 +243,10 @@ class InternalIndexedDF[K] {
         resultArray.append(proj(joinedRow).copy())
       }
     }
-    new ScanIterator(resultArray)
+    val result = new ScanIterator(resultArray)
+    val t2 = System.nanoTime()
+    println("multigetJoined on InternalIndexedDF took %f for returning %d rows".format((t2-t1)/1000000.0, result.size))
+
+    result
   }
 }

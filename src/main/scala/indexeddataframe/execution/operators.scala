@@ -77,6 +77,7 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
   override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
 
+
     // we need to repartition when creating the Index in order to know how to partition the appends and join probes
     val pairLongRow = child.execute().map ( row => (row.get(colNo, LongType).asInstanceOf[Long], row.copy()) )
     val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
@@ -84,7 +85,6 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
       val part = r.toSeq.map( x => x._2.copy() )
       part.toIterator
     }, true)
-    //repartitionedRDD.collect()
 
     val partitions = repartitionedRDD.mapPartitions[InternalIndexedDF[Long]](
       rowIter => Iterator(Utils.doIndexing(colNo, rowIter.toSeq, output.map(_.dataType))),
@@ -190,7 +190,12 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
       (key, row.copy())
     })
 
-    val result = leftRDD.multigetJoined(pairRDD.collect(), output)
+    var t1 = System.nanoTime()
+    val broadcastedRDD = sparkContext.broadcast(pairRDD.collect())
+    var t2 = System.nanoTime()
+    println("collecting and broadcasting took %f".format((t2-t1)/1000000.0))
+
+    val result = leftRDD.multigetJoined(broadcastedRDD.value, output)
     result
   }
 }

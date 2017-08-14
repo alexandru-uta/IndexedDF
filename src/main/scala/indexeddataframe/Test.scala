@@ -34,8 +34,8 @@ object Test extends App {
   }
 
   val sparkSession = SparkSession.builder.
-    master("local")
-    //master("spark://Rams-MacBook-Pro-2.local:7077")
+    //master("local")
+    master("spark://localhost:7077")
     .appName("spark test app")
     //.config("spark.logLineage", "true")
     .config("spark.driver.maxResultSize", "8g")
@@ -51,14 +51,14 @@ object Test extends App {
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/home/alex/projects/IndexedDF/pkp2.csv")
+    .load("/Users/alexanderuta/projects/IndexedDF/pkp2.csv")
 
   var smallDF = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/home/alex/projects/IndexedDF/pers2.csv")
+    .load("/Users/alexanderuta/projects/IndexedDF/pers2.csv")
 
   df = df.cache()
   smallDF = smallDF.cache()
@@ -154,7 +154,6 @@ object Test extends App {
   println("join size on IDF = %d, on DF = %d".format(size1, size2))
 
   //res.show(1200)
-  //res.write.option("header", "true").csv("result.csv")
 
   sparkSession.close()
   sparkSession.stop()
