@@ -171,8 +171,9 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
 
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = sparkContext.broadcast(right.executeCollect())
+    val outputBroadcast = sparkContext.broadcast(output)
 
-    val result = leftRDD.multigetBroadcast(rightRDD, output)
+    val result = leftRDD.multigetBroadcast(rightRDD, outputBroadcast)
     result
   }
 }

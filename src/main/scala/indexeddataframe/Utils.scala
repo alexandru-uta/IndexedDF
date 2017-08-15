@@ -131,10 +131,10 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
     * @param output
     * @return
     */
-  def multigetBroadcast(rightRDD: Broadcast[Array[InternalRow]], output: Seq[Attribute]): RDD[InternalRow] = {
+  def multigetBroadcast(rightRDD: Broadcast[Array[InternalRow]], outputBroadcast: Broadcast[Seq[Attribute]]): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => {
-        val res = part.next().multigetBroadcast(rightRDD.value, output)
+        val res = part.next().multigetBroadcast(rightRDD.value, outputBroadcast.value)
         res
       }, true)
     res
