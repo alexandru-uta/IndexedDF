@@ -14,8 +14,8 @@ import org.apache.spark.SparkEnv
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.sql.execution.CacheManager
-
 import scala.collection.mutable.ArrayBuffer
+import org.apache.spark.sql.functions.broadcast
 
 object Test extends App {
 
@@ -34,8 +34,8 @@ object Test extends App {
   }
 
   val sparkSession = SparkSession.builder.
-    //master("local")
-    master("spark://localhost:7077")
+    master("local")
+    //master("spark://localhost:7077")
     .appName("spark test app")
     //.config("spark.logLineage", "true")
     .config("spark.driver.maxResultSize", "8g")
@@ -133,7 +133,7 @@ object Test extends App {
   //res.collect()
   var size1 = 0
   var plan = res.queryExecution.executedPlan.execute()
-  plan.foreachPartition( p => size1 += p.size )
+  plan.foreachPartition( p => println(p.size) )
   t2 = System.nanoTime()
 
   //res.show(100)
@@ -147,11 +147,11 @@ object Test extends App {
   //res.collect()
   var size2 = 0
   plan = res2.queryExecution.executedPlan.execute()
-  plan.foreachPartition( p => size2 += p.size )
+  plan.foreachPartition( p => println(p.size) )
   t4 = System.nanoTime()
 
   println("join on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
-  println("join size on IDF = %d, on DF = %d".format(size1, size2))
+  //println("join size on IDF = %d, on DF = %d".format(size1, size2))
 
   //res.show(1200)
 

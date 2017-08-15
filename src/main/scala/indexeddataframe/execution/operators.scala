@@ -134,13 +134,6 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
-  protected def createResultProjection(): UnsafeProjection =  {
-      // Always put the stream side on left to simplify implementation
-      // both of left and right side could be null
-      UnsafeProjection.create(
-        output, (left.output ++ right.output).map(_.withNullability(true)))
-  }
-
   override def doExecute(): RDD[InternalRow] = {
     println("in the Shuffled JOIN operator")
 
@@ -172,30 +165,14 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
-  protected def createResultProjection(): UnsafeProjection =  {
-    // Always put the stream side on left to simplify implementation
-    // both of left and right side could be null
-    UnsafeProjection.create(
-      output, (left.output ++ right.output).map(_.withNullability(true)))
-  }
 
   override def doExecute(): RDD[InternalRow] = {
     println("in the Broadcast JOIN operator")
 
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
-    val rightRDD = right.execute()
+    val rightRDD = sparkContext.broadcast(right.executeCollect())
 
-    var pairRDD = rightRDD.map( row => {
-      val key = row.get(rightCol, LongType).asInstanceOf[Long]
-      (key, row.copy())
-    })
-
-    var t1 = System.nanoTime()
-    val broadcastedRDD = pairRDD.collect()//sparkContext.broadcast(pairRDD.collect())
-    var t2 = System.nanoTime()
-    println("collecting and broadcasting took %f".format((t2-t1)/1000000.0))
-
-    val result = leftRDD.multigetJoined(broadcastedRDD, output)
+    val result = leftRDD.multigetBroadcast(rightRDD, output)
     result
   }
 }

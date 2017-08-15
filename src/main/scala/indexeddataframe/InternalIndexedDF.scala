@@ -253,7 +253,48 @@ class InternalIndexedDF[K] {
     val result = new ScanIterator(resultArray)
     val t2 = System.nanoTime()
     val totTime = (t2 - t1) / 1000000.0
-    println("multigetJoined on InternalIndexedDF took %f for returning %d rows (%d unique), tput = %f rows/ms".format(totTime, result.size, uniqueKeys, result.size/totTime))
+    println("multigetJoined on InternalIndexedDF took %f for returning %d rows, %d unique, tput = %f rows/ms".format(totTime, result.size, uniqueKeys, result.size/totTime))
+
+    result
+  }
+
+  /**
+    * a similar multiget, but this one returns joined rows, composed of left + right joined rows
+    * we need the projection as a parameter to convert back to unsafe rows
+    * @param keys
+    * @return
+    */
+  def multigetBroadcast(keys: Array[InternalRow], output: Seq[Attribute]): Iterator[InternalRow] = {
+    val t1 = System.nanoTime()
+    val resultArray = new ArrayBuffer[InternalRow]
+    val proj = UnsafeProjection.create(output, output.map(_.withNullability(true)))
+
+    var uniqueKeys = 0
+
+    var i = 0
+    val size = keys.size
+    while (i < size) {
+      val row = keys(i).copy()
+      i += 1
+
+      val key = row.get(this.indexCol, schema.fields(this.indexCol).dataType).asInstanceOf[Long]
+
+      val localRows = get(key.asInstanceOf[K])
+      if (localRows.hasNext) uniqueKeys += 1
+      while (localRows.hasNext) {
+        val localRow = localRows.next()
+
+        val joinedRow = new JoinedRow
+        joinedRow.withLeft(localRow)
+        joinedRow.withRight(row)
+
+        resultArray.append(proj(joinedRow).copy())
+      }
+    }
+    val result = new ScanIterator(resultArray)
+    val t2 = System.nanoTime()
+    val totTime = (t2 - t1) / 1000000.0
+    println("multigetJoined on InternalIndexedDF took %f for returning %d rows, %d unique, tput = %f rows/ms".format(totTime, result.size, uniqueKeys, result.size/totTime))
 
     result
   }

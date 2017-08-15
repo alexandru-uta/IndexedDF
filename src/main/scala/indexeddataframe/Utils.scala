@@ -2,6 +2,7 @@ package indexeddataframe
 
 import indexeddataframe.InternalIndexedDF
 import org.apache.spark._
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
@@ -116,9 +117,26 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
     * @return
     */
   def multigetJoined(keys: Array[(Long, InternalRow)], output: Seq[Attribute]): RDD[InternalRow] = {
-    //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
     val res = partitionsRDD.mapPartitions[InternalRow](
-      part => part.next().multigetJoined(keys, output), true)
+      part => {
+        val res = part.next().multigetJoined(keys, output)
+        res
+      }, true)
+    res
+  }
+
+  /**
+    * multiget method used in the case of broadcast indexed join
+    * @param rightRDD
+    * @param output
+    * @return
+    */
+  def multigetBroadcast(rightRDD: Broadcast[Array[InternalRow]], output: Seq[Attribute]): RDD[InternalRow] = {
+    val res = partitionsRDD.mapPartitions[InternalRow](
+      part => {
+        val res = part.next().multigetBroadcast(rightRDD.value, output)
+        res
+      }, true)
     res
   }
 
