@@ -250,10 +250,10 @@ class InternalIndexedDF[K] {
         resultArray.append(proj(joinedRow).copy())
       }
     }
-    val result = new ScanIterator(resultArray)
+    val result = resultArray.toIterator
     val t2 = System.nanoTime()
     val totTime = (t2 - t1) / 1000000.0
-    println("multigetJoined on InternalIndexedDF took %f for returning %d rows, %d unique, tput = %f rows/ms".format(totTime, result.size, uniqueKeys, result.size/totTime))
+    println("multiget %f time, looked up %d rows, returned  %d rows, %d unique, tput = %f rows/ms, ctrie tput = %f lookups/ms".format(totTime, size, resultArray.size, uniqueKeys, resultArray.size/totTime, size/totTime))
 
     result
   }
@@ -274,7 +274,7 @@ class InternalIndexedDF[K] {
     var i = 0
     val size = keys.size
     while (i < size) {
-      val row = keys(i).copy()
+      val row = keys(i)
       i += 1
 
       val key = row.get(this.indexCol, schema.fields(this.indexCol).dataType).asInstanceOf[Long]
@@ -291,10 +291,10 @@ class InternalIndexedDF[K] {
         resultArray.append(proj(joinedRow).copy())
       }
     }
-    val result = new ScanIterator(resultArray)
+    val result = resultArray.toIterator
     val t2 = System.nanoTime()
     val totTime = (t2 - t1) / 1000000.0
-    println("multigetJoined on InternalIndexedDF took %f for returning %d rows, %d unique, tput = %f rows/ms".format(totTime, result.size, uniqueKeys, result.size/totTime))
+    println("multiget %f time, looked up %d rows, returned  %d rows, %d unique, tput = %f rows/ms, ctrie tput = %f lookups/ms".format(totTime, size, resultArray.size, uniqueKeys, resultArray.size/totTime, size/totTime))
 
     result
   }

@@ -19,7 +19,7 @@ import org.apache.spark.sql.functions.broadcast
 
 object Test extends App {
 
-  val nTimes = 1
+  val nTimes = 20
   def getRows(idf: InternalIndexedDF[Long], myVal: Long): Int = {
     var count = 0
     val friendsIter = idf.get(myVal)
@@ -34,11 +34,11 @@ object Test extends App {
   }
 
   val sparkSession = SparkSession.builder.
-    master("local")
-    //master("spark://localhost:7077")
+    //master("local")
+    master("spark://node008:7077")
     .appName("spark test app")
     //.config("spark.logLineage", "true")
-    .config("spark.driver.maxResultSize", "8g")
+    .config("spark.driver.maxResultSize", "40g")
     .getOrCreate()
 
   import sparkSession.implicits._
@@ -49,24 +49,26 @@ object Test extends App {
   var df = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
-    .option("delimiter", "|")
+    .option("delimiter", " ")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pkp2.csv")
+    .load("/var/scratch/aua400/datagen-edges.csv")
 
   var smallDF = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
-    .option("delimiter", "|")
+    .option("delimiter", " ")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pers2.csv")
+    .load("/var/scratch/aua400/datagen-nodes-smaller.csv")
 
-  df = df.cache()
+  //df = df.cache()
   smallDF = smallDF.cache()
   smallDF.collect()
   //smallDF.show(100)
 
+
   val idf2 = df.createIndex(0).cache()
-  var size0 = idf2.collect().size
+  val plan = idf2.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeIndexed()
+  plan.foreachPartition( p => println(p.size))
 
   //idf2.show(1000)
 
@@ -101,7 +103,7 @@ object Test extends App {
   println("init size = %d, append1 size = %d, append2 size = %d, append3 size = %d".format(size0, size1, size2, size3))
 
   */
-
+/*
   var t1 = System.nanoTime()
   val filteredRowsIDF = idf2.multigetRows(Array(2199023262994L))//, 32985348972561L, 2199023262994L, 10008L, 9998L, 1L, 9995L))
   var t2 = System.nanoTime()
@@ -112,15 +114,16 @@ object Test extends App {
   val filteredDF = sparkSession.sql("select * from table1 where src = '2199023262994'")
 
   var t3 = System.nanoTime()
-  val filteredRowsDF = filteredDF.collect()
+  //val filteredRowsDF = filteredDF.collect()
   var t4 = System.nanoTime()
-  val szDF = filteredRowsDF.size
+  val szDF = 0//filteredRowsDF.size
 
   println("lookup on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
   println("lookup size of IDF = %d, on DF = %d".format(szIDF, szDF))
-
+*/
 
   idf2.createOrReplaceTempView("indexedtable")
+  df.createOrReplaceTempView("table1")
   smallDF.createOrReplaceTempView("smalltable")
 
   val res = sparkSession.sql("SELECT * " +
@@ -129,12 +132,16 @@ object Test extends App {
                              "ON indexedtable.src = smalltable.id")
   //res.explain(true)
 
-  t1 = System.nanoTime()
-  //res.collect()
-  var size1 = 0
-  var plan = res.queryExecution.executedPlan.execute()
-  plan.foreachPartition( p => println(p.size) )
-  t2 = System.nanoTime()
+  var totalTime = 0.0
+  for (i  <- 1 to nTimes) {
+    val t1 = System.nanoTime()
+    val plan = res.queryExecution.executedPlan.execute()
+    plan.foreachPartition( p => println(p.size) )
+    val t2 = System.nanoTime()
+    Thread.sleep(800)
+    println("join iteration %d took %f".format(i, (t2-t1)/1000000.0))
+    totalTime += (t2 - t1)
+  }
 
   //res.show(100)
   val res2 = sparkSession.sql("SELECT * " +
@@ -143,14 +150,17 @@ object Test extends App {
     "ON table1.src = smalltable.id")
   //res.explain(true)
 
-  t3 = System.nanoTime()
-  //res.collect()
-  var size2 = 0
-  plan = res2.queryExecution.executedPlan.execute()
-  plan.foreachPartition( p => println(p.size) )
-  t4 = System.nanoTime()
+  var totTime2 = 0.0
+  for (i <- 1 to nTimes) {
+    val t3 = System.nanoTime()
+    //val plan = res2.queryExecution.executedPlan.execute()
+    //plan.foreachPartition( p => println(p.size) )
+    val t4 = System.nanoTime()
+    //println("join iteration %d took %f".format(i, (t4-t3)/1000000.0))
+    totTime2 += (t4 - t3)
+  }
 
-  println("join on IDF took %f ms, DF took %f ms".format(((t2-t1) / 1000000.0), ((t4-t3) / 1000000.0)))
+  println("join on IDF took %f ms, DF took %f ms".format((totalTime / (nTimes * 1000000.0)), (totTime2 / (nTimes * 1000000.0))))
   //println("join size on IDF = %d, on DF = %d".format(size1, size2))
 
   //res.show(1200)

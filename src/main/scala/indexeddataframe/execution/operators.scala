@@ -145,7 +145,6 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
       //key
        (key, row.copy())
     })
-
     // repartition in the same way as the Indexed Data Frame
     pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
 
@@ -165,13 +164,16 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
-
   override def doExecute(): RDD[InternalRow] = {
     println("in the Broadcast JOIN operator")
 
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
+    val t1 = System.nanoTime()
     val rightRDD = sparkContext.broadcast(right.executeCollect())
     val outputBroadcast = sparkContext.broadcast(output)
+    val t2 = System.nanoTime()
+
+    println("collect + broadcast time = %f".format( (t2-t1) / 1000000.0))
 
     val result = leftRDD.multigetBroadcast(rightRDD, outputBroadcast)
     result
