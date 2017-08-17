@@ -1,17 +1,16 @@
 package indexeddataframe
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
-import org.apache.spark.memory.MemoryMode
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, JoinedRow, UnsafeProjection}
-import org.apache.spark.sql.execution.vectorized.{ColumnVector, ColumnarBatch}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, JoinedRow, UnsafeProjection, UnsafeRow}
+
 import org.apache.spark.sql.types.{DataType, IntegerType, StructField, StructType}
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.{Row}
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
+
+import indexeddataframe.RowBatch
 
 /**
   * Created by alexuta on 10/07/17.
@@ -19,47 +18,38 @@ import scala.collection.mutable.ArrayBuffer
   */
 class InternalIndexedDF[K] {
 
-  private val batchSize = 16384
   private val index:TrieMap[K, Int] = new TrieMap[K, Int]
-  private val cBatches:ConcurrentHashMap[Int, ColumnarBatch] = new ConcurrentHashMap[Int, ColumnarBatch]()
   private var schema:StructType = null
   private var indexCol:Int = 0
-  private var nBatches:AtomicInteger = new AtomicInteger(0)
 
-  private val rows:ArrayBuffer[InternalRow] = new ArrayBuffer[InternalRow]()
+  //private val rows:ArrayBuffer[InternalRow] = new ArrayBuffer[InternalRow]()
   private val rowPointers:ArrayBuffer[Int] = new ArrayBuffer[Int]()
   private var nRows:Int = 0
 
+  private val rowBatches = new ArrayBuffer[RowBatch]
+  private var nRowBatches = 0
+  // variable that keeps track of row length, batch number and batch offset
+  private var rowBatchData = new ArrayBuffer[(Int, Int, Int)]
+
   /**
-    * creates a columnar batch based on the schema
-    * @return the created columnar batch
+    * function that creates a row batch
     */
-  private def createColumnarBatch(): ColumnarBatch = {
-    // create a columnar batch
-    val cBatch = ColumnarBatch.allocate(this.schema)
-    var i = 0
-    // create the columns based on the schema
-    while (i < this.schema.size) {
-      val crntVector = ColumnVector.allocate(batchSize, this.schema(i).dataType, MemoryMode.ON_HEAP)
-      cBatch.setColumn(i, crntVector)
-      i += 1
-    }
-    cBatches.put(nBatches.get(), cBatch)
-    nBatches.getAndIncrement()
-    cBatch
+  private def createRowBatch() = {
+    rowBatches.append(new RowBatch())
+    nRowBatches += 1
   }
 
   /**
-    * function that creates the index of the df on column with index columnNo
+    * function that returns a row batch which can fit the current row
+    * @param row
+    * @return
     */
-  def createIndex(df: DataFrame, columnNo: Int) = {
-    // get the schema of the df
-    this.schema = df.schema
-    // create a new column and add it to the schema
-    val prevCol = new StructField("prev", IntegerType, true)
-    this.schema = this.schema.add(prevCol)
-    this.indexCol = columnNo
-    //println(this.schema)
+  private def getBatchForRow(row: Array[Byte]) = {
+    if (rowBatches(nRowBatches - 1).canInsert(row) == false) {
+      // if this row cannot fit, create a new batch
+      createRowBatch()
+    }
+    rowBatches(nRowBatches - 1)
   }
 
   /**
@@ -74,9 +64,10 @@ class InternalIndexedDF[K] {
       val field = new StructField("", ty)
       this.schema = this.schema.add(field)
     }
-    val prevCol = new StructField("prev", IntegerType, true)
-    this.schema = this.schema.add(prevCol)
+    //val prevCol = new StructField("prev", IntegerType, true)
+    //this.schema = this.schema.add(prevCol)
     this.indexCol = columnNo
+    createRowBatch()
     //println(this.schema)
   }
 
@@ -85,7 +76,16 @@ class InternalIndexedDF[K] {
     * @param row
     */
   def appendRow(row: InternalRow) = {
-    this.rows.append(row.copy())
+
+    // get the current row byte array
+    val rowData = row.asInstanceOf[UnsafeRow].getBytes()
+    // get the current batch
+    val crntBatch = getBatchForRow(rowData)
+    val offset = crntBatch.appendRow(rowData)
+    // keep track of row len, batch no and offset in batch
+    rowBatchData.append((rowData.length, nRowBatches - 1, offset))
+
+    //this.rows.append(row.copy())
     // check if the row already exists in the ctrie
     val key = row.get(this.indexCol, schema.fields(this.indexCol).dataType)
     val value = index.get(key.asInstanceOf[K])
@@ -136,11 +136,19 @@ class InternalIndexedDF[K] {
       ret
     }
     def next(): InternalRow = {
-      val ret = rows(crntRowId).copy()
+      val ptrToRowBatch = rowBatchData(crntRowId)
+      val rowlen = ptrToRowBatch._1
+      val batchNo = ptrToRowBatch._2
+      val batchOffset = ptrToRowBatch._3
+      val rowBytes = rowBatches(batchNo).getRow(batchOffset, rowlen)
+      val ret = new UnsafeRow(schema.size)
+      ret.pointTo(rowBytes, rowlen)
+      //val ret = rows(crntRowId).copy()
       this.crntRowId = rowPointers(crntRowId)
       ret
     }
   }
+
   /**
     * function that performs lookups in the indexed data frame
     * returns an iterator of rows
@@ -175,18 +183,16 @@ class InternalIndexedDF[K] {
     * iterator function imposed by the RDD interface
     */
   def iterator(): Iterator[InternalRow] = {
-    /* val resArray = new ArrayBuffer[InternalRow]
-    val iter = index.iterator
-    while (iter.hasNext) {
-      val crntEntry = iter.next()
-      val key = crntEntry._1
-      val rowid = crntEntry._2
+    val rows = new ArrayBuffer[InternalRow]
+    rowBatchData.foreach( data => {
+      val rowlen = data._1
+      val batchNo = data._2
+      val rowOffset = data._3
 
-      val rows = get(key)
-      while (rows.hasNext) {
-        resArray.append(rows.next())
-      }
-    } */
+      val row = new UnsafeRow(schema.size)
+      row.pointTo(rowBatches(batchNo).getRow(rowOffset, rowlen), rowlen)
+      rows.append(row)
+    })
     new ScanIterator(rows)
   }
 

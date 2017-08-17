@@ -18,7 +18,7 @@ import scala.reflect.ClassTag
   */
 object Utils {
 
-  def defaultNoPartitions: Int = 3 * 4 * 6 * 2
+  def defaultNoPartitions: Int = 16
   val defaultPartitioner: HashPartitioner = new HashPartitioner(defaultNoPartitions)
 
   /**
