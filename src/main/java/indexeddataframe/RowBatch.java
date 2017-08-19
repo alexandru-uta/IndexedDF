@@ -2,9 +2,9 @@ package indexeddataframe;
 
 class RowBatch {
     // 10 MB batch
-    private static int batchSize = 10 * 1024 * 1024;
+    private static final int batchSize = 1024 * 1024;
     // the array that stores the data
-    private byte[] rowData = null;
+    public byte[] rowData = null;
     // the current offset
     private int size = 0;
 

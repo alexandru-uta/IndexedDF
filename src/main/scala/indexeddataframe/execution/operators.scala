@@ -77,16 +77,13 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
   override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
 
-
     // we need to repartition when creating the Index in order to know how to partition the appends and join probes
+    // and for the repartitioning we need an RDD[(key, row)] instead of RDD[row]
     val pairLongRow = child.execute().map ( row => (row.get(colNo, LongType).asInstanceOf[Long], row.copy()) )
+    // do the repartitioning
     val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
-    val repartitionedRDD = repartitionedPair.mapPartitions[InternalRow]( r => {
-      val part = r.toSeq.map( x => x._2.copy() )
-      part.toIterator
-    }, true)
-
-    val partitions = repartitionedRDD.mapPartitions[InternalIndexedDF[Long]](
+    // create the index
+    val partitions = repartitionedPair.mapPartitions[InternalIndexedDF[Long]](
       rowIter => Iterator(Utils.doIndexing(colNo, rowIter.toSeq, output.map(_.dataType))),
       true)
     val ret = new IRDD(colNo, partitions)
@@ -140,17 +137,15 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = right.execute()
 
-    var pairRDD = rightRDD.map( row => {
-      val key = row.get(rightCol, LongType).asInstanceOf[Long]
-      //key
-       (key, row.copy())
-    })
+    // we need to create an RDD[(key, row)] instead of RDD[row] in order to be able to repartition
+    // otherwise we wouldn't be able to know where to send each of these partitions
+    var pairRDD = rightRDD.map( row => (row.get(rightCol, LongType).asInstanceOf[Long], row.copy()))
     // repartition in the same way as the Indexed Data Frame
     pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
 
     val result = leftRDD.partitionsRDD.zipPartitions(pairRDD, true) { (leftIter, rightIter) =>
       if (leftIter.hasNext) {
-        val result = leftIter.next().multigetJoined(rightIter.toArray, output)
+        val result = leftIter.next().multigetJoined(rightIter, output)
         result
       }
       else Iterator(null)

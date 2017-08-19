@@ -64,8 +64,6 @@ class InternalIndexedDF[K] {
       val field = new StructField("", ty)
       this.schema = this.schema.add(field)
     }
-    //val prevCol = new StructField("prev", IntegerType, true)
-    //this.schema = this.schema.add(prevCol)
     this.indexCol = columnNo
     createRowBatch()
     //println(this.schema)
@@ -107,9 +105,9 @@ class InternalIndexedDF[K] {
     * method that appends a list of InternalRow
     * @param rows
     */
-  def appendRows(rows: Seq[InternalRow]) = {
+  def appendRows(rows: Seq[(Long, InternalRow)]) = {
     rows.foreach( row => {
-      appendRow(row)
+      appendRow(row._2)
     })
   }
 
@@ -142,6 +140,7 @@ class InternalIndexedDF[K] {
       val batchOffset = ptrToRowBatch._3
       val rowBytes = rowBatches(batchNo).getRow(batchOffset, rowlen)
       val ret = new UnsafeRow(schema.size)
+      //ret.pointTo(rowBatches(batchNo).rowData, batchOffset, rowlen)
       ret.pointTo(rowBytes, rowlen)
       //val ret = rows(crntRowId).copy()
       this.crntRowId = rowPointers(crntRowId)
@@ -228,18 +227,19 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multigetJoined(keys: Array[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
+  def multigetJoined(keys: Iterator[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
     val t1 = System.nanoTime()
     val resultArray = new ArrayBuffer[InternalRow]
     val proj = UnsafeProjection.create(output, output.map(_.withNullability(true)))
 
     var uniqueKeys = 0
 
-    var i = 0
-    val size = keys.size
-    while (i < size) {
-      val pair = keys(i)
-      i += 1
+    var appendTime = 0.0
+
+    var size = 0
+    while (keys.hasNext) {
+      val pair = keys.next()
+      size += 1
 
       val key = pair._1
       val row = pair._2
@@ -249,17 +249,23 @@ class InternalIndexedDF[K] {
       while (localRows.hasNext) {
         val localRow = localRows.next()
 
+        val c1 = System.nanoTime()
+
         val joinedRow = new JoinedRow
         joinedRow.withLeft(localRow)
         joinedRow.withRight(row)
 
-        resultArray.append(proj(joinedRow).copy())
+        val c2 = System.nanoTime()
+
+        resultArray.append(joinedRow);//proj(joinedRow).copy())
+        appendTime += (c2 - c1)
       }
     }
-    val result = resultArray.toIterator
+    val result = resultArray.toIterator.map( joinedRow => proj(joinedRow))
     val t2 = System.nanoTime()
     val totTime = (t2 - t1) / 1000000.0
-    println("multiget %f time, looked up %d rows, returned  %d rows, %d unique, tput = %f rows/ms, ctrie tput = %f lookups/ms".format(totTime, size, resultArray.size, uniqueKeys, resultArray.size/totTime, size/totTime))
+    //println("multiget %f time, looked up %d rows, returned  %d rows, %d unique, tput = %f rows/ms, ctrie tput = %f lookups/ms".format(totTime, size, resultArray.size, uniqueKeys, resultArray.size/totTime, size/totTime))
+    println("multiget total time = %f, construct row time = %f".format(totTime, appendTime / 1000000.0))
 
     result
   }
@@ -294,10 +300,10 @@ class InternalIndexedDF[K] {
         joinedRow.withLeft(localRow)
         joinedRow.withRight(row)
 
-        resultArray.append(proj(joinedRow).copy())
+        resultArray.append(joinedRow)
       }
     }
-    val result = resultArray.toIterator
+    val result = resultArray.toIterator.map( joinedRow => proj(joinedRow))
     val t2 = System.nanoTime()
     val totTime = (t2 - t1) / 1000000.0
     println("multiget %f time, looked up %d rows, returned  %d rows, %d unique, tput = %f rows/ms, ctrie tput = %f lookups/ms".format(totTime, size, resultArray.size, uniqueKeys, resultArray.size/totTime, size/totTime))

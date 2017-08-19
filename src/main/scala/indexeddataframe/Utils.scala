@@ -18,7 +18,7 @@ import scala.reflect.ClassTag
   */
 object Utils {
 
-  def defaultNoPartitions: Int = 16
+  def defaultNoPartitions: Int = 4
   val defaultPartitioner: HashPartitioner = new HashPartitioner(defaultNoPartitions)
 
   /**
@@ -30,11 +30,11 @@ object Utils {
     * @param types
     * @return
     */
-  def doIndexing(colNo: Int, rows: Seq[InternalRow], types: Seq[DataType]): InternalIndexedDF[Long] = {
+  def doIndexing(colNo: Int, rows: Seq[(Long, InternalRow)], types: Seq[DataType]): InternalIndexedDF[Long] = {
     val idf = new InternalIndexedDF[Long]
     idf.createIndex(types, colNo)
     idf.appendRows(rows)
-    /*
+
     val iter = idf.get(32985348972561L)
     var nRows = 0
     while (iter.hasNext) {
@@ -42,7 +42,7 @@ object Utils {
       iter.next()
     }
     println("this item is repeated %d times on this partition".format(nRows))
-    */
+
     idf
   }
 
@@ -108,21 +108,6 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
       part => part.next().multiget(keys), true)
     res
 
-  }
-
-  /**
-    * RDD method that returns an RDD of rows containing the searched keys in a JOIN scenario
-    * the returned rows contain both left and right rows
-    * @param keys
-    * @return
-    */
-  def multigetJoined(keys: Array[(Long, InternalRow)], output: Seq[Attribute]): RDD[InternalRow] = {
-    val res = partitionsRDD.mapPartitions[InternalRow](
-      part => {
-        val res = part.next().multigetJoined(keys, output)
-        res
-      }, true)
-    res
   }
 
   /**
