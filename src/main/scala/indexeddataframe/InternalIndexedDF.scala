@@ -127,13 +127,16 @@ class InternalIndexedDF[K] {
     }
     def next(): InternalRow = {
       val ptrToRowBatch = rowBatchData(crntRowId)
+
       val rowlen = ptrToRowBatch._1
       val batchNo = ptrToRowBatch._2
       val batchOffset = ptrToRowBatch._3
+
       val rowBytes = rowBatches(batchNo).getRow(batchOffset, rowlen)
-      //ret.pointTo(rowBatches(batchNo).rowData, batchOffset, rowlen)
       currentRow.pointTo(rowBytes, rowlen)
-      //val ret = rows(crntRowId).copy()
+
+      //currentRow.pointTo(rowBatches(batchNo).rowData, batchOffset, rowlen)
+
       this.crntRowId = rowPointers(crntRowId)
       currentRow
     }
@@ -190,7 +193,7 @@ class InternalIndexedDF[K] {
         val batchNo = data._2
         val rowOffset = data._3
 
-        currentRow.pointTo(rowBatches(batchNo).getRow(rowOffset, rowlen), rowlen)
+        currentRow.pointTo(rowBatches(batchNo).rowData, rowOffset, rowlen)
         currentRow
       }
     }
