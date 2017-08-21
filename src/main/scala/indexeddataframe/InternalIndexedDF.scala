@@ -8,7 +8,7 @@ import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
 import indexeddataframe.RowBatch
 import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner, UnsafeRowJoiner}
-
+import org.apache.spark.unsafe.Platform
 
 /**
   * Created by alexuta on 10/07/17.
@@ -128,10 +128,10 @@ class InternalIndexedDF[K] {
       val batchNo = ptrToRowBatch._2
       val batchOffset = ptrToRowBatch._3
 
-      val rowBytes = rowBatches(batchNo).getRow(batchOffset, rowlen)
-      currentRow.pointTo(rowBytes, rowlen)
+      //val rowBytes = rowBatches(batchNo).getRow(batchOffset, rowlen)
+      //currentRow.pointTo(rowBytes, rowlen)
 
-      //currentRow.pointTo(rowBatches(batchNo).rowData, batchOffset, rowlen)
+      currentRow.pointTo(rowBatches(batchNo).rowData, batchOffset + Platform.BYTE_ARRAY_OFFSET, rowlen)
 
       this.crntRowId = rowPointers(crntRowId)
       currentRow
@@ -189,7 +189,7 @@ class InternalIndexedDF[K] {
         val batchNo = data._2
         val rowOffset = data._3
 
-        currentRow.pointTo(rowBatches(batchNo).rowData, rowOffset, rowlen)
+        currentRow.pointTo(rowBatches(batchNo).rowData, rowOffset + Platform.BYTE_ARRAY_OFFSET, rowlen)
         currentRow
       }
     }
