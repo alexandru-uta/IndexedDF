@@ -1,18 +1,14 @@
 package indexeddataframe
 
-
-import java.util
-
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, JoinedRow, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.types.{DataType, IntegerType, StructField, StructType}
-import org.apache.spark.sql.Row
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
 import indexeddataframe.RowBatch
+import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner, UnsafeRowJoiner}
 
-import scala.collection.mutable
 
 /**
   * Created by alexuta on 10/07/17.
@@ -231,17 +227,19 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multigetJoined(keys: Iterator[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
-    val proj = UnsafeProjection.create(output, output)
-    val joined = new JoinedRow()
+  def multigetJoined(keys: Iterator[(Long, InternalRow)], joiner: UnsafeRowJoiner): Iterator[InternalRow] = {
+
     keys.flatMap { keyAndRow =>
       val key = keyAndRow._1
       val right = keyAndRow._2
-      joined.withRight(right)
+      //joined.withRight(right)
       get(key.asInstanceOf[K]).map { left =>
-        proj(joined.withLeft(left))
+        //proj(joined.withLeft(left))
+        joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
       }
     }
+
+
   }
 
   /**

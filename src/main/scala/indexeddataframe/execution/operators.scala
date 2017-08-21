@@ -5,9 +5,10 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeProjection}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.catalyst.plans.LeftExistence
 import org.apache.spark.sql.catalyst.plans.physical.{Distribution, Partitioning}
-import org.apache.spark.sql.types.LongType
+import org.apache.spark.sql.types.{LongType, StructField, StructType}
 
 
 trait LeafExecNode extends SparkPlan {
@@ -146,9 +147,14 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
     // repartition in the same way as the Indexed Data Frame
     pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
 
+    val leftSchema = StructType(left.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+    val rightSchema = StructType(right.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+
     val result = leftRDD.partitionsRDD.zipPartitions(pairRDD, true) { (leftIter, rightIter) =>
+      // generate an unsafe row joiner
+      val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
       if (leftIter.hasNext) {
-        val result = leftIter.next().multigetJoined(rightIter, output)
+        val result = leftIter.next().multigetJoined(rightIter, joiner)
         result
       }
       else Iterator(null)
