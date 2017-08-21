@@ -37,18 +37,6 @@ object IndexedOperators extends Strategy {
       Join(left, right, joinType, condition) match {
         case ExtractEquiJoinKeys(jointype, leftKeys, rightKeys, condition, lChild, rChild) => {
 
-          println(condition)
-          println(jointype)
-
-          println(leftKeys.map(_.dataType))
-          println(rightKeys.map(_.dataType))
-
-          leftKeys.foreach( k => println(k) )
-          rightKeys.foreach( k => println(k) )
-
-          println(lChild.output)
-          println(rChild.output)
-
           // compute the index of the left side keys == column number
           var leftColNo = 0
           var i = 0
@@ -65,7 +53,7 @@ object IndexedOperators extends Strategy {
             i += 1
           })
 
-          println("leftcol = %d, rightcol = %d".format(leftColNo, rightColNo))
+          //println("leftcol = %d, rightcol = %d".format(leftColNo, rightColNo))
 
           IndexedShuffledEquiJoinExec(planLater(left), planLater(right), leftColNo, rightColNo) :: Nil
         }

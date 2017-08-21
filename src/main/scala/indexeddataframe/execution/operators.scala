@@ -6,7 +6,7 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeProjection}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.plans.LeftExistence
-import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.catalyst.plans.physical.{Distribution, Partitioning}
 import org.apache.spark.sql.types.LongType
 
 
@@ -130,6 +130,9 @@ case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends Un
 case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
 
   override def output: Seq[Attribute] = left.output ++ right.output
+
+  // Use this
+  override def requiredChildDistribution: Seq[Distribution] = super.requiredChildDistribution
 
   override def doExecute(): RDD[InternalRow] = {
     println("in the Shuffled JOIN operator")

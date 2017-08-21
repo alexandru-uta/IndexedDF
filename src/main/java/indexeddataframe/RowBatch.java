@@ -1,8 +1,10 @@
 package indexeddataframe;
 
+import org.apache.spark.unsafe.Platform;
+
 class RowBatch {
     // 10 MB batch
-    private static final int batchSize = 1024 * 1024;
+    private static final int batchSize = 4 * 1024 * 1024;
     // the array that stores the data
     public byte[] rowData = null;
     // the current offset
@@ -11,9 +13,7 @@ class RowBatch {
     /**
      * constructor for the row batch
      */
-    public RowBatch() {
-        rowData = new byte[batchSize];
-    }
+    public RowBatch() { rowData = new byte[batchSize]; }
 
     /**
      * function that appends a row and returns the offset at which it can be found
@@ -25,6 +25,7 @@ class RowBatch {
             return -1;
         }
         System.arraycopy(crntRow, 0, rowData, size, crntRow.length);
+        //Platform.copyMemory(crntRow, 0, rowData, size, crntRow.length);
         int returnedOffset = size;
         size += crntRow.length;
         return returnedOffset;
@@ -43,6 +44,7 @@ class RowBatch {
         }
         byte[] row = new byte[len];
         System.arraycopy(rowData, offset, row, 0, len);
+        //Platform.copyMemory(rowData, offset, row, 0, len);
         return row;
     }
 

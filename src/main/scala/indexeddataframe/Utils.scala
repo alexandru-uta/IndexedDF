@@ -18,7 +18,7 @@ import scala.reflect.ClassTag
   */
 object Utils {
 
-  def defaultNoPartitions: Int = 4
+  def defaultNoPartitions: Int = 12
   val defaultPartitioner: HashPartitioner = new HashPartitioner(defaultNoPartitions)
 
   /**
@@ -34,7 +34,7 @@ object Utils {
     val idf = new InternalIndexedDF[Long]
     idf.createIndex(types, colNo)
     idf.appendRows(rows)
-
+    /*
     val iter = idf.get(32985348972561L)
     var nRows = 0
     while (iter.hasNext) {
@@ -42,7 +42,7 @@ object Utils {
       iter.next()
     }
     println("this item is repeated %d times on this partition".format(nRows))
-
+    */
     idf
   }
 
@@ -158,7 +158,6 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
     while (iter2.hasNext) {
       val value = iter2.next()._2
       idf.appendRow(value)
-      //println("I appended a row!!!")
     }
     Iterator(idf)
   }

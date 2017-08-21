@@ -1,16 +1,18 @@
 package indexeddataframe
 
 
+import java.util
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, JoinedRow, UnsafeProjection, UnsafeRow}
-
 import org.apache.spark.sql.types.{DataType, IntegerType, StructField, StructType}
-import org.apache.spark.sql.{Row}
+import org.apache.spark.sql.Row
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
-
 import indexeddataframe.RowBatch
+
+import scala.collection.mutable
 
 /**
   * Created by alexuta on 10/07/17.
@@ -74,7 +76,6 @@ class InternalIndexedDF[K] {
     * @param row
     */
   def appendRow(row: InternalRow) = {
-
     // get the current row byte array
     val rowData = row.asInstanceOf[UnsafeRow].getBytes()
     // get the current batch
@@ -82,8 +83,6 @@ class InternalIndexedDF[K] {
     val offset = crntBatch.appendRow(rowData)
     // keep track of row len, batch no and offset in batch
     rowBatchData.append((rowData.length, nRowBatches - 1, offset))
-
-    //this.rows.append(row.copy())
     // check if the row already exists in the ctrie
     val key = row.get(this.indexCol, schema.fields(this.indexCol).dataType)
     val value = index.get(key.asInstanceOf[K])
@@ -125,7 +124,10 @@ class InternalIndexedDF[K] {
     * iterator returned by the get function on the indexed data frame
     */
   class RowIterator(rowId: Int) extends Iterator[InternalRow] {
+    // unsafeRow object that points to the byte array representing its data
+    private val currentRow = new UnsafeRow(schema.size)
     private var crntRowId = rowId
+
     def hasNext(): Boolean = {
       var ret = false
       if (crntRowId != -1) {
@@ -139,12 +141,11 @@ class InternalIndexedDF[K] {
       val batchNo = ptrToRowBatch._2
       val batchOffset = ptrToRowBatch._3
       val rowBytes = rowBatches(batchNo).getRow(batchOffset, rowlen)
-      val ret = new UnsafeRow(schema.size)
       //ret.pointTo(rowBatches(batchNo).rowData, batchOffset, rowlen)
-      ret.pointTo(rowBytes, rowlen)
+      currentRow.pointTo(rowBytes, rowlen)
       //val ret = rows(crntRowId).copy()
       this.crntRowId = rowPointers(crntRowId)
-      ret
+      currentRow
     }
   }
 
@@ -228,46 +229,16 @@ class InternalIndexedDF[K] {
     * @return
     */
   def multigetJoined(keys: Iterator[(Long, InternalRow)], output: Seq[Attribute]): Iterator[InternalRow] = {
-    val t1 = System.nanoTime()
-    val resultArray = new ArrayBuffer[InternalRow]
-    val proj = UnsafeProjection.create(output, output.map(_.withNullability(true)))
-
-    var uniqueKeys = 0
-
-    var appendTime = 0.0
-
-    var size = 0
-    while (keys.hasNext) {
-      val pair = keys.next()
-      size += 1
-
-      val key = pair._1
-      val row = pair._2
-
-      val localRows = get(key.asInstanceOf[K])
-      if (localRows.hasNext) uniqueKeys += 1
-      while (localRows.hasNext) {
-        val localRow = localRows.next()
-
-        val c1 = System.nanoTime()
-
-        val joinedRow = new JoinedRow
-        joinedRow.withLeft(localRow)
-        joinedRow.withRight(row)
-
-        val c2 = System.nanoTime()
-
-        resultArray.append(joinedRow);//proj(joinedRow).copy())
-        appendTime += (c2 - c1)
+    val proj = UnsafeProjection.create(output, output)
+    val joined = new JoinedRow()
+    keys.flatMap { keyAndRow =>
+      val key = keyAndRow._1
+      val right = keyAndRow._2
+      joined.withRight(right)
+      get(key.asInstanceOf[K]).map { left =>
+        proj(joined.withLeft(left))
       }
     }
-    val result = resultArray.toIterator.map( joinedRow => proj(joinedRow))
-    val t2 = System.nanoTime()
-    val totTime = (t2 - t1) / 1000000.0
-    //println("multiget %f time, looked up %d rows, returned  %d rows, %d unique, tput = %f rows/ms, ctrie tput = %f lookups/ms".format(totTime, size, resultArray.size, uniqueKeys, resultArray.size/totTime, size/totTime))
-    println("multiget total time = %f, construct row time = %f".format(totTime, appendTime / 1000000.0))
-
-    result
   }
 
   /**
