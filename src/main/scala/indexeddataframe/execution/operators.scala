@@ -84,7 +84,7 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
     val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
     // create the index
     val partitions = repartitionedPair.mapPartitions[InternalIndexedDF[Long]](
-      rowIter => Iterator(Utils.doIndexing(colNo, rowIter.toSeq, output.map(_.dataType))),
+      rowIter => Iterator(Utils.doIndexing(colNo, rowIter, output.map(_.dataType))),
       true)
     val ret = new IRDD(colNo, partitions)
     Utils.ensureCached(ret)

@@ -104,19 +104,9 @@ class InternalIndexedDF[K] {
     * method that appends a list of InternalRow
     * @param rows
     */
-  def appendRows(rows: Seq[(Long, InternalRow)]) = {
+  def appendRows(rows: Iterator[(Long, InternalRow)]) = {
     rows.foreach( row => {
       appendRow(row._2)
-    })
-  }
-
-  /**
-    * same as before but now the the input is an array of rows
-    * @param rows
-    */
-  def appendRows(rows: Array[Row]) = {
-    rows.foreach( row => {
-      appendRow(InternalRow.fromSeq(row.toSeq))
     })
   }
 
@@ -183,17 +173,27 @@ class InternalIndexedDF[K] {
     * iterator function imposed by the RDD interface
     */
   def iterator(): Iterator[InternalRow] = {
-    val rows = new ArrayBuffer[InternalRow]
-    rowBatchData.foreach( data => {
-      val rowlen = data._1
-      val batchNo = data._2
-      val rowOffset = data._3
+    //val rows = new ArrayBuffer[InternalRow]
+    new Iterator[InternalRow]() {
+      val currentRow = new UnsafeRow(schema.size)
+      var rowIndex = 0
 
-      val row = new UnsafeRow(schema.size)
-      row.pointTo(rowBatches(batchNo).getRow(rowOffset, rowlen), rowlen)
-      rows.append(row)
-    })
-    new ScanIterator(rows)
+      override def hasNext: Boolean = {
+        rowIndex < nRows
+      }
+
+      override def next(): InternalRow = {
+        val data = rowBatchData(rowIndex)
+        rowIndex += 1
+
+        val rowlen = data._1
+        val batchNo = data._2
+        val rowOffset = data._3
+
+        currentRow.pointTo(rowBatches(batchNo).getRow(rowOffset, rowlen), rowlen)
+        currentRow
+      }
+    }
   }
 
   /**
