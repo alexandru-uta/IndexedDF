@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
 object IndexedOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case CreateIndex(colNo, child) => CreateIndexExec(colNo, planLater(child)) :: Nil
-    case AppendRows(rows, child) => AppendRowsExec(rows, planLater(child)) :: Nil
+    case AppendRows(left, right) => AppendRowsExec(planLater(left), planLater(right)) :: Nil
     case IndexedBlockRDD(output, rdd, child) => IndexedBlockRDDScanExec(output, rdd, child) :: Nil
     case GetRows(key, child) => GetRowsExec(key, planLater(child)) :: Nil
     case IndexedFilter(condition, child) => IndexedFilterExec(condition, planLater(child)) :: Nil

@@ -70,7 +70,7 @@ object Utils {
   * @param colNo
   * @param partitionsRDD
   */
-class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
+class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
   extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
 
   override val partitioner = partitionsRDD.partitioner
@@ -93,12 +93,13 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
     */
   def get(key: Long): RDD[InternalRow] = {
     //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
-    val res = partitionsRDD.mapPartitions[InternalRow](
-      part => part.next().get(key), true)
-   res
+    val res = partitionsRDD.flatMap { part =>
+      part.get(key).map( row => row.copy() )
+    }
+    res
   }
 
-  /**
+  /** TODO: REDO this, it is not correct now!!! (many things have changed since its first implementation
     * RDD method that returns an RDD of rows containing the searched keys
     * @param keys
     * @return

@@ -27,8 +27,8 @@ class IndexedDatasetFunctions[T](ds: Dataset[T]) extends Serializable {
   def createIndex(colNo: Int): DataFrame = {
     Dataset.ofRows(ds.sparkSession, CreateIndex(colNo, ds.logicalPlan))
   }
-  def appendRows(rows: Seq[InternalRow]): DataFrame = {
-    Dataset.ofRows(ds.sparkSession, AppendRows(rows, ds.logicalPlan))
+  def appendRows(rightDS: Dataset[T]): DataFrame = {
+    Dataset.ofRows(ds.sparkSession, AppendRows(ds.logicalPlan, rightDS.logicalPlan))
   }
   def getRows(key: Long): Array[InternalRow] = {
     //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))

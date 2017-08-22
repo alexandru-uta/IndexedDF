@@ -76,8 +76,8 @@ trait IndexedOperatorExec extends SparkPlan {
 case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
   override def outputPartitioning = HashPartitioning(Seq(child.output(colNo)), sqlContext.getConf("spark.sql.shuffle.partitions").toInt)
-
   override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(child.output(colNo))))
+
   override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
 
@@ -95,13 +95,25 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
   }
 }
 
-case class AppendRowsExec(rows: Seq[InternalRow], child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
-  override def output: Seq[Attribute] = child.output
+case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecNode with IndexedOperatorExec {
+  override def output: Seq[Attribute] = left.output
+
+  override def outputPartitioning = left.outputPartitioning
+  override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(left.output(0))), ClusteredDistribution(Seq(right.output(0))))
 
   override def executeIndexed(): IRDD = {
     println("executing the appendRows operator")
-    val rdd = child.asInstanceOf[IndexedOperatorExec].executeIndexed().appendRows(rows)
-    Utils.ensureCached(rdd)
+    val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
+    val rightRDD = right.execute()
+
+    val result = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
+      val idf = leftIter.next()
+      while (rightIter.hasNext) {
+        idf.appendRow(rightIter.next())
+      }
+      Iterator(idf)
+    }
+    Utils.ensureCached(new IRDD(leftRDD.colNo, result))
   }
 }
 

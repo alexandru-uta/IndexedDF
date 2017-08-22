@@ -197,7 +197,7 @@ class InternalIndexedDF[K] {
         val rowOffset = data._3
 
         currentRow.pointTo(rowBatches(batchNo).rowData, rowOffset + Platform.BYTE_ARRAY_OFFSET, rowlen)
-        currentRow
+        currentRow.copy()
       }
     }
   }
