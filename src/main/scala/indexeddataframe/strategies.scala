@@ -54,7 +54,7 @@ object IndexedOperators extends Strategy {
           })
 
           //println("leftcol = %d, rightcol = %d".format(leftColNo, rightColNo))
-          IndexedShuffledEquiJoinExec(planLater(left), planLater(right), leftColNo, rightColNo) :: Nil
+          IndexedBroadcastEquiJoinExec(planLater(left), planLater(right), leftColNo, rightColNo) :: Nil
         }
         case _ => Nil
       }

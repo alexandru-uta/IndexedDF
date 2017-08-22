@@ -133,7 +133,7 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
   override def output: Seq[Attribute] = left.output ++ right.output
 
   // Use this
-  override def requiredChildDistribution: Seq[Distribution] = super.requiredChildDistribution
+  //override def requiredChildDistribution: Seq[Distribution] = super.requiredChildDistribution
 
   override def doExecute(): RDD[InternalRow] = {
     println("in the Shuffled JOIN operator")
@@ -178,13 +178,11 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
     val t1 = System.nanoTime()
     // broadcast the right relation
     val rightRDD = sparkContext.broadcast(right.executeCollect())
-    // broadcast the joiner
-    val joinerBroadcast = sparkContext.broadcast(GenerateUnsafeRowJoiner.create(leftSchema, rightSchema))
     val t2 = System.nanoTime()
 
     println("collect + broadcast time = %f".format( (t2-t1) / 1000000.0))
 
-    val result = leftRDD.multigetBroadcast(rightRDD, joinerBroadcast, rightCol)
+    val result = leftRDD.multigetBroadcast(rightRDD, leftSchema, rightSchema, rightCol)
     result
   }
 }

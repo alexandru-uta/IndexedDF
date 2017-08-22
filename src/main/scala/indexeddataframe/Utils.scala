@@ -6,9 +6,9 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowJoiner
+import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner, UnsafeRowJoiner}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection}
-import org.apache.spark.sql.types.{DataType, LongType}
+import org.apache.spark.sql.types.{DataType, LongType, StructType}
 import org.apache.spark.storage.StorageLevel
 
 import scala.collection.mutable.ArrayBuffer
@@ -19,7 +19,7 @@ import scala.reflect.ClassTag
   */
 object Utils {
 
-  def defaultNoPartitions: Int = 4
+  def defaultNoPartitions: Int = 16
   val defaultPartitioner: HashPartitioner = new HashPartitioner(defaultNoPartitions)
 
   /**
@@ -112,18 +112,21 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
   }
 
   /**
-    * multiget method used in the case of the broadcast join
+    * multiget method used in the broadcast join
     * @param rightRDD
-    * @param joinerBroadcast
+    * @param leftSchema
+    * @param rightSchema
     * @param joinRightCol
     * @return
     */
   def multigetBroadcast(rightRDD: Broadcast[Array[InternalRow]],
-                        joinerBroadcast: Broadcast[UnsafeRowJoiner],
+                        leftSchema: StructType,
+                        rightSchema: StructType,
                         joinRightCol: Int): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => {
-        val res = part.next().multigetBroadcast(rightRDD.value, joinerBroadcast.value, joinRightCol)
+        val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
+        val res = part.next().multigetBroadcast(rightRDD.value, joiner, joinRightCol)
         res
       }, true)
     res
