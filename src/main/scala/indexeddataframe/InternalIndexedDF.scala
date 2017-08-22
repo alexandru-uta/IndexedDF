@@ -2,32 +2,42 @@ package indexeddataframe
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, JoinedRow, UnsafeProjection, UnsafeRow}
-import org.apache.spark.sql.types.{DataType, IntegerType, StructField, StructType}
+import org.apache.spark.sql.types._
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
 import indexeddataframe.RowBatch
-import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner, UnsafeRowJoiner}
+import org.apache.spark.sql.catalyst.expressions.codegen.{UnsafeRowJoiner}
 import org.apache.spark.unsafe.Platform
 
 /**
-  * Created by alexuta on 10/07/17.
-  * this is a mockup of the internal data structure that stores the indexed data frame
+  * this the internal data structure that stores a partition of an Indexed Data Frame
   */
 class InternalIndexedDF[K] {
 
+  // the index data structure
   private val index:TrieMap[K, Int] = new TrieMap[K, Int]
+
+  // the schema of the dataframe
   private var schema:StructType = null
+
+  // the column on which the index is computed
   private var indexCol:Int = 0
 
-  //private val rows:ArrayBuffer[InternalRow] = new ArrayBuffer[InternalRow]()
-  private val rowPointers:ArrayBuffer[Int] = new ArrayBuffer[Int]()
-  private var nRows:Int = 0
-
+  // the row batches in which we keep the row data
   private val rowBatches = new ArrayBuffer[RowBatch]
   private var nRowBatches = 0
-  // variable that keeps track of row length, batch number and batch offset
+
+  // pointer to #previous row with the same index key
+  // we use this to be able to "get" all the rows that contain the index key
+  // by crawling through this array
+  private val rowPointers:ArrayBuffer[Int] = new ArrayBuffer[Int]()
+
+  // member that keeps track of row length, batch number and batch offset
   private var rowBatchData = new ArrayBuffer[(Int, Int, Int)]
+
+  // the number of inserted rows in this partition
+  private var nRows:Int = 0
 
   /**
     * function that creates a row batch
@@ -128,9 +138,6 @@ class InternalIndexedDF[K] {
       val batchNo = ptrToRowBatch._2
       val batchOffset = ptrToRowBatch._3
 
-      //val rowBytes = rowBatches(batchNo).getRow(batchOffset, rowlen)
-      //currentRow.pointTo(rowBytes, rowlen)
-
       currentRow.pointTo(rowBatches(batchNo).rowData, batchOffset + Platform.BYTE_ARRAY_OFFSET, rowlen)
 
       this.crntRowId = rowPointers(crntRowId)
@@ -142,7 +149,7 @@ class InternalIndexedDF[K] {
     * function that performs lookups in the indexed data frame
     * returns an iterator of rows
    */
-  def get(key: K): Iterator[InternalRow] = {
+   def get(key: K): Iterator[InternalRow] = {
     val firstRowId = index.get(key)
     var ret: Iterator[InternalRow] = null
     if (firstRowId != None) ret = new RowIterator(firstRowId.get)
@@ -228,18 +235,13 @@ class InternalIndexedDF[K] {
     * @return
     */
   def multigetJoined(keys: Iterator[(Long, InternalRow)], joiner: UnsafeRowJoiner): Iterator[InternalRow] = {
-
     keys.flatMap { keyAndRow =>
       val key = keyAndRow._1
       val right = keyAndRow._2
-      //joined.withRight(right)
       get(key.asInstanceOf[K]).map { left =>
-        //proj(joined.withLeft(left))
         joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
       }
     }
-
-
   }
 
   /**
@@ -248,38 +250,12 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multigetBroadcast(keys: Array[InternalRow], output: Seq[Attribute]): Iterator[InternalRow] = {
-    val t1 = System.nanoTime()
-    val resultArray = new ArrayBuffer[InternalRow]
-    val proj = UnsafeProjection.create(output, output.map(_.withNullability(true)))
-
-    var uniqueKeys = 0
-
-    var i = 0
-    val size = keys.size
-    while (i < size) {
-      val row = keys(i)
-      i += 1
-
-      val key = row.get(this.indexCol, schema.fields(this.indexCol).dataType).asInstanceOf[Long]
-
-      val localRows = get(key.asInstanceOf[K])
-      if (localRows.hasNext) uniqueKeys += 1
-      while (localRows.hasNext) {
-        val localRow = localRows.next()
-
-        val joinedRow = new JoinedRow
-        joinedRow.withLeft(localRow)
-        joinedRow.withRight(row)
-
-        resultArray.append(joinedRow)
+  def multigetBroadcast(keys: Array[InternalRow], joiner: UnsafeRowJoiner, joinRightCol: Int): Iterator[InternalRow] = {
+    keys.toIterator.flatMap { right =>
+      val key = right.get(joinRightCol, LongType)
+      get(key.asInstanceOf[K]).map { left =>
+        joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
       }
     }
-    val result = resultArray.toIterator.map( joinedRow => proj(joinedRow))
-    val t2 = System.nanoTime()
-    val totTime = (t2 - t1) / 1000000.0
-    println("multiget %f time, looked up %d rows, returned  %d rows, %d unique, tput = %f rows/ms, ctrie tput = %f lookups/ms".format(totTime, size, resultArray.size, uniqueKeys, resultArray.size/totTime, size/totTime))
-
-    result
   }
 }

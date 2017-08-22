@@ -171,15 +171,20 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
   override def doExecute(): RDD[InternalRow] = {
     println("in the Broadcast JOIN operator")
 
+    val leftSchema = StructType(left.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+    val rightSchema = StructType(right.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val t1 = System.nanoTime()
+    // broadcast the right relation
     val rightRDD = sparkContext.broadcast(right.executeCollect())
-    val outputBroadcast = sparkContext.broadcast(output)
+    // broadcast the joiner
+    val joinerBroadcast = sparkContext.broadcast(GenerateUnsafeRowJoiner.create(leftSchema, rightSchema))
     val t2 = System.nanoTime()
 
     println("collect + broadcast time = %f".format( (t2-t1) / 1000000.0))
 
-    val result = leftRDD.multigetBroadcast(rightRDD, outputBroadcast)
+    val result = leftRDD.multigetBroadcast(rightRDD, joinerBroadcast, rightCol)
     result
   }
 }

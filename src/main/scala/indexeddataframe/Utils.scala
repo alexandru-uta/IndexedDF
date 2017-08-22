@@ -6,6 +6,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowJoiner
 import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection}
 import org.apache.spark.sql.types.{DataType, LongType}
 import org.apache.spark.storage.StorageLevel
@@ -18,7 +19,7 @@ import scala.reflect.ClassTag
   */
 object Utils {
 
-  def defaultNoPartitions: Int = 12
+  def defaultNoPartitions: Int = 4
   val defaultPartitioner: HashPartitioner = new HashPartitioner(defaultNoPartitions)
 
   /**
@@ -91,7 +92,7 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
     * @return
     */
   def get(key: Long): RDD[InternalRow] = {
-    println("I have this many partitions: " + partitionsRDD.getNumPartitions)
+    //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => part.next().get(key), true)
    res
@@ -111,15 +112,18 @@ class IRDD(private val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long
   }
 
   /**
-    * multiget method used in the case of broadcast indexed join
+    * multiget method used in the case of the broadcast join
     * @param rightRDD
-    * @param output
+    * @param joinerBroadcast
+    * @param joinRightCol
     * @return
     */
-  def multigetBroadcast(rightRDD: Broadcast[Array[InternalRow]], outputBroadcast: Broadcast[Seq[Attribute]]): RDD[InternalRow] = {
+  def multigetBroadcast(rightRDD: Broadcast[Array[InternalRow]],
+                        joinerBroadcast: Broadcast[UnsafeRowJoiner],
+                        joinRightCol: Int): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => {
-        val res = part.next().multigetBroadcast(rightRDD.value, outputBroadcast.value)
+        val res = part.next().multigetBroadcast(rightRDD.value, joinerBroadcast.value, joinRightCol)
         res
       }, true)
     res
