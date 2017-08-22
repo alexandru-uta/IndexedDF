@@ -3,12 +3,11 @@ package indexeddataframe.execution
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
-import org.apache.spark.sql.catalyst.plans.LeftExistence
 import org.apache.spark.sql.catalyst.plans.physical._
-import org.apache.spark.sql.types.{LongType, StructField, StructType}
+import org.apache.spark.sql.types.{StructField, StructType}
 
 
 trait LeafExecNode extends SparkPlan {
@@ -34,6 +33,9 @@ trait BinaryExecNode extends SparkPlan {
 trait IndexedOperatorExec extends SparkPlan {
   //override def outputPartitioning: Partitioning = child.outputPartitioning
   def executeIndexed(): IRDD
+
+  // the number of the indexed column
+  def indexColNo = 0
 
   /**
     * An Indexed operator cannot return rows, so this method should normally not be invoked.
@@ -67,16 +69,22 @@ trait IndexedOperatorExec extends SparkPlan {
     resultRDD.collect()
   }
 
+  // TODO: this needs to be redone!!!!
   def executeMultiGetRows(keys: Array[Long]): Array[InternalRow] = {
     val resultRDD = executeIndexed().multiget(keys)
     resultRDD.collect()
   }
 }
 
-case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
+/**
+  * physical operator that creates the index
+  * @param indexColNo
+  * @param child
+  */
+case class CreateIndexExec(override val indexColNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
-  override def outputPartitioning = HashPartitioning(Seq(child.output(colNo)), sqlContext.getConf("spark.sql.shuffle.partitions").toInt)
-  override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(child.output(colNo))))
+  override def outputPartitioning = HashPartitioning(Seq(child.output(indexColNo)), sqlContext.getConf("spark.sql.shuffle.partitions").toInt)
+  override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(child.output(indexColNo))))
 
   override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
@@ -88,18 +96,27 @@ case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode w
     //val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
     // create the index
     val partitions = child.execute().mapPartitions[InternalIndexedDF[Long]](
-      rowIter => Iterator(Utils.doIndexing(colNo, rowIter, output.map(_.dataType))),
+      rowIter => Iterator(Utils.doIndexing(indexColNo, rowIter, output.map(_.dataType))),
       true)
-    val ret = new IRDD(colNo, partitions)
+    val ret = new IRDD(indexColNo, partitions)
     Utils.ensureCached(ret)
   }
 }
 
+/**
+  * physical operator that appends rows to an indexed DataFrame
+  * @param left the indexed DataFrame
+  * @param right a regular DataFrame
+  */
 case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = left.output
 
+  override def indexColNo = left.asInstanceOf[IndexedOperatorExec].indexColNo
+  def distributionOutput = left.asInstanceOf[IndexedOperatorExec].indexColNo
+
   override def outputPartitioning = left.outputPartitioning
-  override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(left.output(0))), ClusteredDistribution(Seq(right.output(0))))
+  override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(output(distributionOutput))),
+                                                              ClusteredDistribution(Seq(right.output(distributionOutput))))
 
   override def executeIndexed(): IRDD = {
     println("executing the appendRows operator")
@@ -117,10 +134,20 @@ case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecN
   }
 }
 
+/**
+  * a physical operator that is used to replace the InMemoryRelation of default Spark,
+  * as InMemoryRelation stores CachedBatches, while in our indexed DataFrame we do not want to change
+  * the representation, we just "cache" the data structure as is
+  * @param output
+  * @param rdd
+  * @param child
+  */
 case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD, child: SparkPlan)
   extends LeafExecNode with IndexedOperatorExec {
 
+  override def indexColNo = child.asInstanceOf[IndexedOperatorExec].indexColNo
   override def outputPartitioning: Partitioning = child.outputPartitioning
+
   override def executeIndexed(): IRDD = {
     println("executing the cache() operator")
 
@@ -128,6 +155,11 @@ case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD, child: Spa
   }
 }
 
+/**
+  * operator that performs key lookups
+  * @param key
+  * @param child
+  */
 case class GetRowsExec(key: Long, child: SparkPlan) extends UnaryExecNode {
   override def output: Seq[Attribute] = child.output
 
@@ -139,19 +171,36 @@ case class GetRowsExec(key: Long, child: SparkPlan) extends UnaryExecNode {
   }
 }
 
+/**
+  * dummy filter object, does not do anything atm
+  * will be used in the future for applying filter on the indexed DataFrame
+  * @param condition
+  * @param child
+  */
 case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
 
+  override def indexColNo = child.asInstanceOf[IndexedOperatorExec].indexColNo
   override def outputPartitioning: Partitioning = child.outputPartitioning
   override def executeIndexed(): IRDD = child.asInstanceOf[IndexedOperatorExec].executeIndexed()
 }
 
+/**
+  * physical operator to performed a shuffled equijoin between our indexed DataFrame and a regular DataFrame
+  * @param left the indexed DataFrame
+  * @param right a regular dataFrame
+  * @param leftCol the number of the column on which the join is performed for the left table
+  * @param rightCol the number of the column on which the join is performed for the left table
+  * @param leftKeys the left join keys
+  * @param rightKeys the right join keys
+  */
 case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int,
                                        leftKeys: Seq[Expression], rightKeys: Seq[Expression]) extends BinaryExecNode {
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
-  // Use this
+  // We're using this to force spark to shuffle the right relation in a similar way
+  // to the left indexed relation such that we can correctly do the join
   override def requiredChildDistribution: Seq[Distribution] =  Seq(ClusteredDistribution(leftKeys), ClusteredDistribution(rightKeys))
     //Seq(UnknownPartitioning(Utils.defaultNoPartitions), HashPartitioning(rightKeys, Utils.defaultNoPartitions))
 
@@ -184,6 +233,13 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
 
 }
 
+/**
+  * physical operator that performs a broadcast equi join between an indexed DataFrame and a regular DataFrame
+  * @param left the indexed DataFrame
+  * @param right a regular DataFrame
+  * @param leftCol
+  * @param rightCol
+  */
 case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
 
   override def output: Seq[Attribute] = left.output ++ right.output
