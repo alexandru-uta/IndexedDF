@@ -110,9 +110,9 @@ class InternalIndexedDF[K] {
     * method that appends a list of InternalRow
     * @param rows
     */
-  def appendRows(rows: Iterator[(Long, InternalRow)]) = {
+  def appendRows(rows: Iterator[InternalRow]) = {
     rows.foreach( row => {
-      appendRow(row._2)
+      appendRow(row)
     })
   }
 
@@ -234,10 +234,9 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multigetJoined(keys: Iterator[(Long, InternalRow)], joiner: UnsafeRowJoiner): Iterator[InternalRow] = {
-    keys.flatMap { keyAndRow =>
-      val key = keyAndRow._1
-      val right = keyAndRow._2
+  def multigetJoined(keys: Iterator[InternalRow], joiner: UnsafeRowJoiner, joinRightCol: Int): Iterator[InternalRow] = {
+    keys.flatMap { right =>
+      val key = right.get(joinRightCol, LongType)
       get(key.asInstanceOf[K]).map { left =>
         joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
       }

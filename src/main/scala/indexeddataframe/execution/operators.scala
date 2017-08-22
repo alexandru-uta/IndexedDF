@@ -7,7 +7,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expre
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.catalyst.plans.LeftExistence
-import org.apache.spark.sql.catalyst.plans.physical.{Distribution, Partitioning}
+import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.types.{LongType, StructField, StructType}
 
 
@@ -32,6 +32,7 @@ trait BinaryExecNode extends SparkPlan {
 }
 
 trait IndexedOperatorExec extends SparkPlan {
+  //override def outputPartitioning: Partitioning = child.outputPartitioning
   def executeIndexed(): IRDD
 
   /**
@@ -74,17 +75,19 @@ trait IndexedOperatorExec extends SparkPlan {
 
 case class CreateIndexExec(colNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
+  override def outputPartitioning = HashPartitioning(Seq(child.output(colNo)), sqlContext.getConf("spark.sql.shuffle.partitions").toInt)
 
+  override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(child.output(colNo))))
   override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
 
     // we need to repartition when creating the Index in order to know how to partition the appends and join probes
     // and for the repartitioning we need an RDD[(key, row)] instead of RDD[row]
-    val pairLongRow = child.execute().map ( row => (row.get(colNo, LongType).asInstanceOf[Long], row.copy()) )
+    //val pairLongRow = child.execute().map ( row => (row.get(colNo, LongType).asInstanceOf[Long], row.copy()) )
     // do the repartitioning
-    val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
+    //val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
     // create the index
-    val partitions = repartitionedPair.mapPartitions[InternalIndexedDF[Long]](
+    val partitions = child.execute().mapPartitions[InternalIndexedDF[Long]](
       rowIter => Iterator(Utils.doIndexing(colNo, rowIter, output.map(_.dataType))),
       true)
     val ret = new IRDD(colNo, partitions)
@@ -102,9 +105,10 @@ case class AppendRowsExec(rows: Seq[InternalRow], child: SparkPlan) extends Unar
   }
 }
 
-case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD)
+case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD, child: SparkPlan)
   extends LeafExecNode with IndexedOperatorExec {
 
+  override def outputPartitioning: Partitioning = child.outputPartitioning
   override def executeIndexed(): IRDD = {
     println("executing the cache() operator")
 
@@ -125,15 +129,19 @@ case class GetRowsExec(key: Long, child: SparkPlan) extends UnaryExecNode {
 
 case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
+
+  override def outputPartitioning: Partitioning = child.outputPartitioning
   override def executeIndexed(): IRDD = child.asInstanceOf[IndexedOperatorExec].executeIndexed()
 }
 
-case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
+case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int,
+                                       leftKeys: Seq[Expression], rightKeys: Seq[Expression]) extends BinaryExecNode {
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
   // Use this
-  //override def requiredChildDistribution: Seq[Distribution] = super.requiredChildDistribution
+  override def requiredChildDistribution: Seq[Distribution] =  Seq(ClusteredDistribution(leftKeys), ClusteredDistribution(rightKeys))
+    //Seq(UnknownPartitioning(Utils.defaultNoPartitions), HashPartitioning(rightKeys, Utils.defaultNoPartitions))
 
   override def doExecute(): RDD[InternalRow] = {
     println("in the Shuffled JOIN operator")
@@ -143,18 +151,18 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
 
     // we need to create an RDD[(key, row)] instead of RDD[row] in order to be able to repartition
     // otherwise we wouldn't be able to know where to send each of these partitions
-    var pairRDD = rightRDD.map( row => (row.get(rightCol, LongType).asInstanceOf[Long], row.copy()))
+    //var pairRDD = rightRDD.map( row => (row.get(rightCol, LongType).asInstanceOf[Long], row.copy()))
     // repartition in the same way as the Indexed Data Frame
-    pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
+    //pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
 
     val leftSchema = StructType(left.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
     val rightSchema = StructType(right.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
 
-    val result = leftRDD.partitionsRDD.zipPartitions(pairRDD, true) { (leftIter, rightIter) =>
+    val result = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
       // generate an unsafe row joiner
       val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
       if (leftIter.hasNext) {
-        val result = leftIter.next().multigetJoined(rightIter, joiner)
+        val result = leftIter.next().multigetJoined(rightIter, joiner, rightCol)
         result
       }
       else Iterator(null)

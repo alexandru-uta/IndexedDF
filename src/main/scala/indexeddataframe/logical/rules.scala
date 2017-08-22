@@ -49,7 +49,7 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
   def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
 
     case InMemoryRelationMatcher(output, storageLevel, child) if isIndexed(child) =>
-      IndexedBlockRDD(output, getIfCached(child))
+      IndexedBlockRDD(output, getIfCached(child), child)
 
     case p @ Join(left, right, joinType, condition) if isIndexed(p) =>
       IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)

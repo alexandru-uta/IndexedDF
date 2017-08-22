@@ -31,7 +31,7 @@ object Utils {
     * @param types
     * @return
     */
-  def doIndexing(colNo: Int, rows: Iterator[(Long, InternalRow)], types: Seq[DataType]): InternalIndexedDF[Long] = {
+  def doIndexing(colNo: Int, rows: Iterator[InternalRow], types: Seq[DataType]): InternalIndexedDF[Long] = {
     val idf = new InternalIndexedDF[Long]
     idf.createIndex(types, colNo)
     idf.appendRows(rows)

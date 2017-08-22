@@ -30,7 +30,7 @@ object IndexedOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case CreateIndex(colNo, child) => CreateIndexExec(colNo, planLater(child)) :: Nil
     case AppendRows(rows, child) => AppendRowsExec(rows, planLater(child)) :: Nil
-    case IndexedBlockRDD(output, rdd) => IndexedBlockRDDScanExec(output, rdd) :: Nil
+    case IndexedBlockRDD(output, rdd, child) => IndexedBlockRDDScanExec(output, rdd, child) :: Nil
     case GetRows(key, child) => GetRowsExec(key, planLater(child)) :: Nil
     case IndexedFilter(condition, child) => IndexedFilterExec(condition, planLater(child)) :: Nil
     case IndexedJoin(left, right, joinType, condition) =>
@@ -54,7 +54,7 @@ object IndexedOperators extends Strategy {
           })
 
           //println("leftcol = %d, rightcol = %d".format(leftColNo, rightColNo))
-          IndexedBroadcastEquiJoinExec(planLater(left), planLater(right), leftColNo, rightColNo) :: Nil
+          IndexedShuffledEquiJoinExec(planLater(left), planLater(right), leftColNo, rightColNo, leftKeys, rightKeys) :: Nil
         }
         case _ => Nil
       }

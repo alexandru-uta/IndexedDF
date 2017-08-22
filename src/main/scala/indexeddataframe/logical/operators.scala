@@ -6,6 +6,7 @@ import org.apache.spark.sql.catalyst.analysis.MultiInstanceRelation
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LeafNode, LogicalPlan, UnaryNode}
+import org.apache.spark.sql.execution.SparkPlan
 
 case class CreateIndex(val colNo: Int, child: LogicalPlan) extends UnaryNode with IndexedOperator {
   override def output: Seq[Attribute] = child.output
@@ -58,16 +59,16 @@ case class IndexedLocalRelation(output: Seq[Attribute], data: Seq[InternalRow])
   }
 }
 
-case class IndexedBlockRDD(output: Seq[Attribute], rdd: IRDD)
+case class IndexedBlockRDD(output: Seq[Attribute], rdd: IRDD, child: SparkPlan)
   extends IndexedOperator with MultiInstanceRelation {
 
   override def children: Seq[LogicalPlan] = Nil
 
   override def newInstance(): IndexedBlockRDD.this.type =
-    IndexedBlockRDD(output.map(_.newInstance()), rdd).asInstanceOf[this.type]
+    IndexedBlockRDD(output.map(_.newInstance()), rdd, child).asInstanceOf[this.type]
 
   override def sameResult(plan: LogicalPlan): Boolean = plan match {
-    case IndexedBlockRDD(_, otherRDD) => rdd.id == otherRDD.id
+    case IndexedBlockRDD(_, otherRDD, child) => rdd.id == otherRDD.id
     case _ => false
   }
 
