@@ -20,6 +20,7 @@ package org.apache.spark.sql
 import indexeddataframe.execution.IndexedOperatorExec
 import indexeddataframe.logical.{AppendRows, CreateIndex, GetRows}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -30,12 +31,12 @@ class IndexedDatasetFunctions[T](ds: Dataset[T]) extends Serializable {
   def appendRows(rightDS: Dataset[T]): DataFrame = {
     Dataset.ofRows(ds.sparkSession, AppendRows(ds.logicalPlan, rightDS.logicalPlan))
   }
-  def getRows(key: Long): Array[InternalRow] = {
-    //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
-    ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeGetRows(key)
+  def getRows(key: AnyVal): DataFrame = {
+    Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
+    //ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeGetRows(key)
   }
-  def multigetRows(keys: Array[Long]): Array[InternalRow] = {
-    //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
-    ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeMultiGetRows(keys)
-  }
+ // def multigetRows(keys: Array[Long]): Array[InternalRow] = {
+ //   //Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
+  //  ds.queryExecution.executedPlan.asInstanceOf[IndexedOperatorExec].executeMultiGetRows(keys)
+ // }
 }

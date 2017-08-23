@@ -7,19 +7,27 @@ import org.apache.spark.sql.types._
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
 import indexeddataframe.RowBatch
-import org.apache.spark.sql.catalyst.expressions.codegen.{UnsafeRowJoiner}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowJoiner
 import org.apache.spark.unsafe.Platform
+import org.apache.spark.unsafe.types.UTF8String
 
 /**
   * this the internal data structure that stores a partition of an Indexed Data Frame
   */
-class InternalIndexedDF[K] {
+class InternalIndexedDF {
 
   // the index data structure
-  private val index:TrieMap[K, Int] = new TrieMap[K, Int]
+  private val index:TrieMap[Long, Int] = new TrieMap[Long, Int]
 
   // the schema of the dataframe
   private var schema:StructType = null
+  private var output:Seq[Attribute] = null
+
+  // projection that transforms the input row
+  // in a row that contains only the indexed column;
+  // its result will be subsequently used as a key for the TrieMap
+  private var rowToColProj:UnsafeProjection = null
 
   // the column on which the index is computed
   private var indexCol:Int = 0
@@ -66,13 +74,18 @@ class InternalIndexedDF[K] {
     * @param types
     * @param columnNo
     */
-  def createIndex(types: Seq[DataType], columnNo: Int) = {
+  def createIndex(types: Seq[DataType], output: Seq[Attribute], columnNo: Int) = {
     this.schema = new StructType()
     for (ty <- types) {
       val field = new StructField("", ty)
       this.schema = this.schema.add(field)
     }
     this.indexCol = columnNo
+    this.output = output
+
+    // create the projection that obtains an UnsafeRow containing the indexed key for each row
+    rowToColProj = UnsafeProjection.create(Seq(output(columnNo)), output)
+
     createRowBatch()
     //println(this.schema)
   }
@@ -82,6 +95,15 @@ class InternalIndexedDF[K] {
     * @param row
     */
   def appendRow(row: InternalRow) = {
+    // check the type of the key and transform to long
+    val key = schema(indexCol).dataType match  {
+      case LongType => row.asInstanceOf[UnsafeRow].getLong(indexCol)
+      case IntegerType => row.asInstanceOf[UnsafeRow].getInt(indexCol).toLong
+      case StringType => row.asInstanceOf[UnsafeRow].getUTF8String(indexCol).toLong
+      case DoubleType => row.asInstanceOf[UnsafeRow].getDouble(indexCol).toLong
+      // fall back to long as default
+      case _ => row.asInstanceOf[UnsafeRow].getLong(indexCol)
+    }
     // get the current row byte array
     val rowData = row.asInstanceOf[UnsafeRow].getBytes()
     // get the current batch
@@ -90,16 +112,15 @@ class InternalIndexedDF[K] {
     // keep track of row len, batch no and offset in batch
     rowBatchData.append((rowData.length, nRowBatches - 1, offset))
     // check if the row already exists in the ctrie
-    val key = row.get(this.indexCol, schema.fields(this.indexCol).dataType)
-    val value = index.get(key.asInstanceOf[K])
+    val value = index.get(key)
     if (value != None) {
       // key already exists
       // set the pointer of this row to point to previous row
       this.rowPointers.append(value.get)
-      this.index.put(key.asInstanceOf[K], this.nRows)
+      this.index.put(key, this.nRows)
     } else {
       // key does not exist
-      this.index.put(key.asInstanceOf[K], this.nRows)
+      this.index.put(key, this.nRows)
       this.rowPointers.append(-1)
     }
     //println("we just inserted key %s, rowid = %d".format(key.asInstanceOf[String], rowPointers(this.nRows)))
@@ -149,12 +170,21 @@ class InternalIndexedDF[K] {
     * function that performs lookups in the indexed data frame
     * returns an iterator of rows
    */
-   def get(key: K): Iterator[InternalRow] = {
-    val firstRowId = index.get(key)
-    var ret: Iterator[InternalRow] = null
-    if (firstRowId != None) ret = new RowIterator(firstRowId.get)
-    else ret = new RowIterator(-1)
-    ret
+   def get(key: AnyVal): Iterator[InternalRow] = {
+     // check the type of the key and transform to long
+     val internalKey = schema(indexCol).dataType match  {
+       case LongType => key.asInstanceOf[Long]
+       case IntegerType => key.asInstanceOf[Int].toLong
+       case StringType => key.asInstanceOf[UTF8String].toLong
+       case DoubleType => key.asInstanceOf[Double].toLong
+       // fall back to long as default
+       case _ => key.asInstanceOf[Long]
+     }
+     val firstRowId = index.get(internalKey)
+     var ret: Iterator[InternalRow] = null
+     if (firstRowId != None) ret = new RowIterator(firstRowId.get)
+     else ret = new RowIterator(-1)
+     ret
   }
 
   /**
@@ -214,7 +244,7 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multiget(keys: Array[K]): Iterator[InternalRow] = {
+  def multiget(keys: Array[AnyVal]): Iterator[InternalRow] = {
     //println("multiget input size = " + keys.size)
     val resArray = new ArrayBuffer[InternalRow]
     keys.foreach( key => {
@@ -234,10 +264,11 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multigetJoined(keys: Iterator[InternalRow], joiner: UnsafeRowJoiner, joinRightCol: Int): Iterator[InternalRow] = {
+  def multigetJoined(keys: Iterator[InternalRow], joiner: UnsafeRowJoiner, rightOutput: Seq[Attribute], joinRightCol: Int): Iterator[InternalRow] = {
+    //val keyProjection = UnsafeProjection.create(Seq(rightOutput(joinRightCol)), rightOutput)
     keys.flatMap { right =>
-      val key = right.get(joinRightCol, LongType)
-      get(key.asInstanceOf[K]).map { left =>
+      val key = right.get(joinRightCol, schema(indexCol).dataType)
+      get(key.asInstanceOf[AnyVal]).map { left =>
         joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
       }
     }
@@ -249,10 +280,11 @@ class InternalIndexedDF[K] {
     * @param keys
     * @return
     */
-  def multigetBroadcast(keys: Array[InternalRow], joiner: UnsafeRowJoiner, joinRightCol: Int): Iterator[InternalRow] = {
+  def multigetBroadcast(keys: Array[InternalRow], joiner: UnsafeRowJoiner, rightOutput: Seq[Attribute], joinRightCol: Int): Iterator[InternalRow] = {
+    //val keyProjection = UnsafeProjection.create(Seq(rightOutput(joinRightCol)), rightOutput)
     keys.toIterator.flatMap { right =>
-      val key = right.get(joinRightCol, LongType)
-      get(key.asInstanceOf[K]).map { left =>
+      val key = right.get(joinRightCol, schema(indexCol).dataType)
+      get(key.asInstanceOf[AnyVal]).map { left =>
         joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
       }
     }

@@ -5,9 +5,10 @@ import org.apache.spark._
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner}
-import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection, UnsafeRow}
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
+import org.apache.spark.sql.types.{DataType, LongType, StructType}
 import org.apache.spark.storage.StorageLevel
 
 
@@ -25,9 +26,9 @@ object Utils {
     * @param types
     * @return
     */
-  def doIndexing(colNo: Int, rows: Iterator[InternalRow], types: Seq[DataType]): InternalIndexedDF[Long] = {
-    val idf = new InternalIndexedDF[Long]
-    idf.createIndex(types, colNo)
+  def doIndexing(colNo: Int, rows: Iterator[InternalRow], types: Seq[DataType], output: Seq[Attribute]): InternalIndexedDF = {
+    val idf = new InternalIndexedDF
+    idf.createIndex(types, output, colNo)
     idf.appendRows(rows)
     /*
     val iter = idf.get(32985348972561L)
@@ -56,6 +57,18 @@ object Utils {
       rdd
     }
   }
+
+  def toUnsafeRow(row: Row, schema: Array[DataType]): UnsafeRow = {
+    val converter = unsafeRowConverter(schema)
+    converter(row)
+  }
+
+  private def unsafeRowConverter(schema: Array[DataType]): Row => UnsafeRow = {
+    val converter = UnsafeProjection.create(schema)
+    (row: Row) => {
+      converter(CatalystTypeConverters.convertToCatalyst(row).asInstanceOf[InternalRow])
+    }
+  }
 }
 
 /**
@@ -64,7 +77,7 @@ object Utils {
   * @param colNo
   * @param partitionsRDD
   */
-class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
+class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF])
   extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
 
   override val partitioner = partitionsRDD.partitioner
@@ -72,7 +85,7 @@ class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
   override protected def getPartitions: Array[Partition] = partitionsRDD.partitions
 
   override def compute(part: Partition, context: TaskContext): Iterator[InternalRow] = {
-    firstParent[InternalIndexedDF[Long]].iterator(part, context).next.iterator
+    firstParent[InternalIndexedDF].iterator(part, context).next.iterator
   }
 
   override def persist(newLevel: StorageLevel): this.type = {
@@ -85,7 +98,7 @@ class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
     * @param key
     * @return
     */
-  def get(key: Long): RDD[InternalRow] = {
+  def get(key: AnyVal): RDD[InternalRow] = {
     //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
     val res = partitionsRDD.flatMap { part =>
       part.get(key).map( row => row.copy() )
@@ -98,7 +111,7 @@ class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
     * @param keys
     * @return
     */
-  def multiget(keys: Array[Long]): RDD[InternalRow] = {
+  def multiget(keys: Array[AnyVal]): RDD[InternalRow] = {
     //println("I have this many partitions: " + partitionsRDD.getNumPartitions)
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => part.next().multiget(keys), true)
@@ -117,11 +130,12 @@ class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF[Long]])
   def multigetBroadcast(rightRDD: Broadcast[Array[InternalRow]],
                         leftSchema: StructType,
                         rightSchema: StructType,
+                        rightOutput: Seq[Attribute],
                         joinRightCol: Int): RDD[InternalRow] = {
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => {
         val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
-        val res = part.next().multigetBroadcast(rightRDD.value, joiner, joinRightCol)
+        val res = part.next().multigetBroadcast(rightRDD.value, joiner, rightOutput, joinRightCol)
         res
       }, true)
     res

@@ -3,7 +3,7 @@ package indexeddataframe.execution
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeRow}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.catalyst.plans.physical._
@@ -64,13 +64,13 @@ trait IndexedOperatorExec extends SparkPlan {
     executeIndexed().take(n)
   }
 
-  def executeGetRows(key: Long): Array[InternalRow] = {
+  def executeGetRows(key: AnyVal): Array[InternalRow] = {
     val resultRDD = executeIndexed().get(key)
     resultRDD.collect()
   }
 
   // TODO: this needs to be redone!!!!
-  def executeMultiGetRows(keys: Array[Long]): Array[InternalRow] = {
+  def executeMultiGetRows(keys: Array[AnyVal]): Array[InternalRow] = {
     val resultRDD = executeIndexed().multiget(keys)
     resultRDD.collect()
   }
@@ -95,8 +95,8 @@ case class CreateIndexExec(override val indexColNo: Int, child: SparkPlan) exten
     // do the repartitioning
     //val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
     // create the index
-    val partitions = child.execute().mapPartitions[InternalIndexedDF[Long]](
-      rowIter => Iterator(Utils.doIndexing(indexColNo, rowIter, output.map(_.dataType))),
+    val partitions = child.execute().mapPartitions[InternalIndexedDF](
+      rowIter => Iterator(Utils.doIndexing(indexColNo, rowIter, output.map(_.dataType), output)),
       true)
     val ret = new IRDD(indexColNo, partitions)
     Utils.ensureCached(ret)
@@ -160,7 +160,7 @@ case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD, child: Spa
   * @param key
   * @param child
   */
-case class GetRowsExec(key: Long, child: SparkPlan) extends UnaryExecNode {
+case class GetRowsExec(key: AnyVal, child: SparkPlan) extends UnaryExecNode {
   override def output: Seq[Attribute] = child.output
 
   override def doExecute(): RDD[InternalRow] = {
@@ -223,7 +223,7 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
       // generate an unsafe row joiner
       val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
       if (leftIter.hasNext) {
-        val result = leftIter.next().multigetJoined(rightIter, joiner, rightCol)
+        val result = leftIter.next().multigetJoined(rightIter, joiner, right.output, rightCol)
         result
       }
       else Iterator(null)
@@ -258,7 +258,7 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
 
     println("collect + broadcast time = %f".format( (t2-t1) / 1000000.0))
 
-    val result = leftRDD.multigetBroadcast(rightRDD, leftSchema, rightSchema, rightCol)
+    val result = leftRDD.multigetBroadcast(rightRDD, leftSchema, rightSchema, right.output, rightCol)
     result
   }
 }

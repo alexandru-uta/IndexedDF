@@ -3,7 +3,7 @@ package indexeddataframe.logical
 import indexeddataframe.IRDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.MultiInstanceRelation
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeRow}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LeafNode, LogicalPlan, UnaryNode}
 import org.apache.spark.sql.execution.SparkPlan
@@ -16,7 +16,7 @@ case class AppendRows(left: LogicalPlan, right: LogicalPlan) extends BinaryNode 
   override def output: Seq[Attribute] = left.output
 }
 
-case class GetRows(val key: Long, child: LogicalPlan) extends UnaryNode with IndexedOperator {
+case class GetRows(val key: AnyVal, child: LogicalPlan) extends UnaryNode with IndexedOperator {
   override def output: Seq[Attribute] = child.output
 }
 
