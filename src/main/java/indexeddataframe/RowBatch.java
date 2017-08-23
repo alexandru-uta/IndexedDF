@@ -3,12 +3,13 @@ package indexeddataframe;
 import org.apache.spark.unsafe.Platform;
 
 class RowBatch {
-    // 10 MB batch
+    // 4 MB batch
     private static final int batchSize = 4 * 1024 * 1024;
     // the array that stores the data
     public byte[] rowData = null;
     // the current offset
     private int size = 0;
+    private int lastOffset = 0;
 
     /**
      * constructor for the row batch
@@ -27,6 +28,7 @@ class RowBatch {
         System.arraycopy(crntRow, 0, rowData, size, crntRow.length);
         //Platform.copyMemory(crntRow, 0, rowData, size, crntRow.length);
         int returnedOffset = size;
+        lastOffset = size;
         size += crntRow.length;
         return returnedOffset;
     }
@@ -57,5 +59,13 @@ class RowBatch {
         if (size + crntRow.length >= batchSize)
             return false;
         return true;
+    }
+
+    public boolean isLastRow(int offset) {
+        return (offset == lastOffset);
+    }
+
+    public int getLastRowSize() {
+        return size - lastOffset;
     }
 }

@@ -135,7 +135,7 @@ class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF])
     val res = partitionsRDD.mapPartitions[InternalRow](
       part => {
         val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
-        val res = part.next().multigetBroadcast(rightRDD.value, joiner, rightOutput, joinRightCol)
+        val res = part.next().multigetJoined(rightRDD.value.toIterator, joiner, rightOutput, joinRightCol)
         res
       }, true)
     res

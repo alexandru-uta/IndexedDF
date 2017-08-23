@@ -24,11 +24,6 @@ class InternalIndexedDF {
   private var schema:StructType = null
   private var output:Seq[Attribute] = null
 
-  // projection that transforms the input row
-  // in a row that contains only the indexed column;
-  // its result will be subsequently used as a key for the TrieMap
-  private var rowToColProj:UnsafeProjection = null
-
   // the column on which the index is computed
   private var indexCol:Int = 0
 
@@ -36,13 +31,12 @@ class InternalIndexedDF {
   private val rowBatches = new ArrayBuffer[RowBatch]
   private var nRowBatches = 0
 
-  // pointer to #previous row with the same index key
-  // we use this to be able to "get" all the rows that contain the index key
-  // by crawling through this array
-  private val rowPointers:ArrayBuffer[Int] = new ArrayBuffer[Int]()
-
-  // member that keeps track of row length, batch number and batch offset
-  private var rowBatchData = new ArrayBuffer[(Int, Int, Int)]
+  // array that keeps the packed row information
+  // in each 64 bit number, for each row we keep
+  // a 12 bit batch number
+  // a 30 bit previous row id (in case the rows have similar keys
+  // a 22 bit offset in the row batch
+  private val rowInfo = new ArrayBuffer[Long]
 
   // the number of inserted rows in this partition
   private var nRows:Int = 0
@@ -83,13 +77,62 @@ class InternalIndexedDF {
     this.indexCol = columnNo
     this.output = output
 
-    // create the projection that obtains an UnsafeRow containing the indexed key for each row
-    rowToColProj = UnsafeProjection.create(Seq(output(columnNo)), output)
-
     createRowBatch()
-    //println(this.schema)
   }
 
+  /**
+    * function that packs the batchNo, rowId and offset of a row into a 64 bit number
+    * @param batchNo -> 12 bits (4069 batches)
+    * @param prevRowId -> 30 bits for the rowId (approx. 1 billion Rows)
+    * @param offset -> 22 bits (4 MB batches)
+    * => in total we support a partition containing 4096 batches of 4MB == 16GB of max 1B rows
+    * @return
+    */
+  private def packBatchRowIdOffset(batchNo: Integer, prevRowId: Integer, offset: Integer): Long = {
+    var result:Long = 0
+    result = batchNo.toLong << 52 // put batchNo on the first 12 bits
+    result = result | (prevRowId.toLong << 22) // put rowId on the next 30 bits
+    result = result | offset // put offset on the last 22 bits
+    result
+  }
+
+  /**
+    * function that unpacks the batchNo, rowId and offset of a row from a 64 bit number
+    * @param batchNo -> 12 bits (4069 batches)
+    * @param prevRowId -> 30 bits for the rowId (approx. 1 billion Rows)
+    * @param offset -> 22 bits (4 MB batches)
+    * => in total we support a partition containing 4096 batches of 4MB == 16GB of max 1B rows
+    * @return
+    */
+  private def unpackBatchRowIdOffset(value: Long): (Int, Int, Int) = {
+    val batchNo = (value >>> 52).toInt
+    val prevRowId = (((value << 12) >> 12) >>> 22).toInt
+    val offset = ((value << 42) >>> 42).toInt
+
+    (batchNo, prevRowId, offset)
+  }
+
+  /**
+    * method that returns the size of a row
+    * @param rowId
+    */
+  private def getSizeOfRow(rowId: Int) = {
+    val unpacked = unpackBatchRowIdOffset(rowInfo(rowId))
+    val batchNo = unpacked._1
+    val prevRowId = unpacked._2
+    val offset = unpacked._3
+
+    var result = 0
+    if (rowBatches(batchNo).isLastRow(offset)) {
+      result = rowBatches(batchNo).getLastRowSize
+    } else {
+      // get info for the next row
+      val unpacked2 = unpackBatchRowIdOffset(rowInfo(rowId + 1))
+      val nextRowOffset = unpacked2._3
+      result = nextRowOffset - offset
+    }
+    result
+  }
   /**
     * method that appends a row to the local indexed data frame partition
     * @param row
@@ -104,24 +147,26 @@ class InternalIndexedDF {
       // fall back to long as default
       case _ => row.asInstanceOf[UnsafeRow].getLong(indexCol)
     }
+
     // get the current row byte array
     val rowData = row.asInstanceOf[UnsafeRow].getBytes()
+
     // get the current batch
     val crntBatch = getBatchForRow(rowData)
     val offset = crntBatch.appendRow(rowData)
-    // keep track of row len, batch no and offset in batch
-    rowBatchData.append((rowData.length, nRowBatches - 1, offset))
+
     // check if the row already exists in the ctrie
     val value = index.get(key)
     if (value != None) {
       // key already exists
-      // set the pointer of this row to point to previous row
-      this.rowPointers.append(value.get)
       this.index.put(key, this.nRows)
+      // update the row info
+      this.rowInfo.append(packBatchRowIdOffset(nRowBatches - 1, value.get, offset))
     } else {
       // key does not exist
       this.index.put(key, this.nRows)
-      this.rowPointers.append(-1)
+      // update the row info
+      this.rowInfo.append(packBatchRowIdOffset(nRowBatches - 1, ~(-1), offset))
     }
     //println("we just inserted key %s, rowid = %d".format(key.asInstanceOf[String], rowPointers(this.nRows)))
     this.nRows += 1
@@ -153,15 +198,20 @@ class InternalIndexedDF {
       ret
     }
     def next(): InternalRow = {
-      val ptrToRowBatch = rowBatchData(crntRowId)
+      val unpacked = unpackBatchRowIdOffset(rowInfo(crntRowId))
+      val batchNo = unpacked._1
+      val prevRowId = unpacked._2
+      val offset = unpacked._3
+      val size = getSizeOfRow(crntRowId)
 
-      val rowlen = ptrToRowBatch._1
-      val batchNo = ptrToRowBatch._2
-      val batchOffset = ptrToRowBatch._3
+      currentRow.pointTo(rowBatches(batchNo).rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
 
-      currentRow.pointTo(rowBatches(batchNo).rowData, batchOffset + Platform.BYTE_ARRAY_OFFSET, rowlen)
+      //println(batchNo +" " + prevRowId + " " + offset)
 
-      this.crntRowId = rowPointers(crntRowId)
+      // last row with this key
+      if (~prevRowId == -1) this.crntRowId = -1
+      else this.crntRowId = prevRowId
+
       currentRow
     }
   }
@@ -209,7 +259,6 @@ class InternalIndexedDF {
     * iterator function imposed by the RDD interface
     */
   def iterator(): Iterator[InternalRow] = {
-    //val rows = new ArrayBuffer[InternalRow]
     new Iterator[InternalRow]() {
       val currentRow = new UnsafeRow(schema.size)
       var rowIndex = 0
@@ -219,14 +268,15 @@ class InternalIndexedDF {
       }
 
       override def next(): InternalRow = {
-        val data = rowBatchData(rowIndex)
+        val unpacked = unpackBatchRowIdOffset(rowInfo(rowIndex))
+
+        val batchNo = unpacked._1
+        val offset = unpacked._3
+        val size = getSizeOfRow(rowIndex)
+
         rowIndex += 1
 
-        val rowlen = data._1
-        val batchNo = data._2
-        val rowOffset = data._3
-
-        currentRow.pointTo(rowBatches(batchNo).rowData, rowOffset + Platform.BYTE_ARRAY_OFFSET, rowlen)
+        currentRow.pointTo(rowBatches(batchNo).rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
         currentRow.copy()
       }
     }
@@ -267,22 +317,6 @@ class InternalIndexedDF {
   def multigetJoined(keys: Iterator[InternalRow], joiner: UnsafeRowJoiner, rightOutput: Seq[Attribute], joinRightCol: Int): Iterator[InternalRow] = {
     //val keyProjection = UnsafeProjection.create(Seq(rightOutput(joinRightCol)), rightOutput)
     keys.flatMap { right =>
-      val key = right.get(joinRightCol, schema(indexCol).dataType)
-      get(key.asInstanceOf[AnyVal]).map { left =>
-        joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
-      }
-    }
-  }
-
-  /**
-    * a similar multiget, but this one returns joined rows, composed of left + right joined rows
-    * we need the projection as a parameter to convert back to unsafe rows
-    * @param keys
-    * @return
-    */
-  def multigetBroadcast(keys: Array[InternalRow], joiner: UnsafeRowJoiner, rightOutput: Seq[Attribute], joinRightCol: Int): Iterator[InternalRow] = {
-    //val keyProjection = UnsafeProjection.create(Seq(rightOutput(joinRightCol)), rightOutput)
-    keys.toIterator.flatMap { right =>
       val key = right.get(joinRightCol, schema(indexCol).dataType)
       get(key.asInstanceOf[AnyVal]).map { left =>
         joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
