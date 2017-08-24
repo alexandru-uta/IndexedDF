@@ -166,7 +166,8 @@ class InternalIndexedDF {
       // key does not exist
       this.index.put(key, this.nRows)
       // update the row info
-      this.rowInfo.append(packBatchRowIdOffset(nRowBatches - 1, ~(-1), offset))
+      // we put a -(2^30) here to signal that this is the last row with the same key
+      this.rowInfo.append(packBatchRowIdOffset(nRowBatches - 1, ~(-(1<<30)), offset))
     }
     //println("we just inserted key %s, rowid = %d".format(key.asInstanceOf[String], rowPointers(this.nRows)))
     this.nRows += 1
@@ -206,10 +207,10 @@ class InternalIndexedDF {
 
       currentRow.pointTo(rowBatches(batchNo).rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
 
-      //println(batchNo +" " + prevRowId + " " + offset)
+      //println(crntRowId + " " + batchNo + " " + prevRowId + " " + offset + " " + currentRow.toString)
 
       // last row with this key
-      if (~prevRowId == -1) this.crntRowId = -1
+      if (~prevRowId == -(1<<30)) this.crntRowId = -1
       else this.crntRowId = prevRowId
 
       currentRow
