@@ -65,9 +65,6 @@ class IndexedDFTtest extends FunSuite {
     myIDF.createOrReplaceTempView("indextable")
     df2.createOrReplaceTempView("nonindextable")
 
-    myIDF.explain(true)
-    df2.explain(true)
-
     val joinedDF = sparkSession.sql("select * from indextable join nonindextable on indextable.src = nonindextable.src")
 
     joinedDF.show()
