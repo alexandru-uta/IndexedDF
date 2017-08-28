@@ -1,20 +1,3 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 
 package indexeddataframe
 
@@ -26,12 +9,24 @@ import indexeddataframe.logical._
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, Literal, NamedExpression}
 import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
 
+/**
+  * strategies for the operators applied on indexed dataframes
+  */
 object IndexedOperators extends Strategy {
   def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case CreateIndex(colNo, child) => CreateIndexExec(colNo, planLater(child)) :: Nil
     case AppendRows(left, right) => AppendRowsExec(planLater(left), planLater(right)) :: Nil
+    /**
+      * this is a strategy for eliminating the [InMemoryRelation] that spark generates when .cache() is called
+      * on an ordinary dataframe; in that case, the representation of the data frame is changed to a CachedBatch;
+      * we cannot have that on the indexed data frames as we would lose the indexing capabilities; therefore, we just
+      * insert a dummy strategy that returns an operator which works on "indexed RDDs"
+      */
     case IndexedBlockRDD(output, rdd, child) => IndexedBlockRDDScanExec(output, rdd, child) :: Nil
     case GetRows(key, child) => GetRowsExec(key, planLater(child)) :: Nil
+    /**
+      * dummy filter object for the moment; in the future, we will implement filtering functionality on the indexed data
+      */
     case IndexedFilter(condition, child) => IndexedFilterExec(condition, planLater(child)) :: Nil
     case IndexedJoin(left, right, joinType, condition) =>
       Join(left, right, joinType, condition) match {

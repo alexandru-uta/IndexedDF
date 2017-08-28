@@ -83,17 +83,14 @@ trait IndexedOperatorExec extends SparkPlan {
   */
 case class CreateIndexExec(override val indexColNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
   override def output: Seq[Attribute] = child.output
+
+  // we need to repartition when creating the Index in order to know how to partition the appends and join probes
   override def outputPartitioning = HashPartitioning(Seq(child.output(indexColNo)), sqlContext.getConf("spark.sql.shuffle.partitions").toInt)
   override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(child.output(indexColNo))))
 
   override def executeIndexed(): IRDD = {
     println("executing the createIndex operator")
 
-    // we need to repartition when creating the Index in order to know how to partition the appends and join probes
-    // and for the repartitioning we need an RDD[(key, row)] instead of RDD[row]
-    //val pairLongRow = child.execute().map ( row => (row.get(colNo, LongType).asInstanceOf[Long], row.copy()) )
-    // do the repartitioning
-    //val repartitionedPair = pairLongRow.partitionBy(Utils.defaultPartitioner)
     // create the index
     val partitions = child.execute().mapPartitions[InternalIndexedDF](
       rowIter => Iterator(Utils.doIndexing(indexColNo, rowIter, output.map(_.dataType), output)),
@@ -202,19 +199,12 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
   // We're using this to force spark to shuffle the right relation in a similar way
   // to the left indexed relation such that we can correctly do the join
   override def requiredChildDistribution: Seq[Distribution] =  Seq(ClusteredDistribution(leftKeys), ClusteredDistribution(rightKeys))
-    //Seq(UnknownPartitioning(Utils.defaultNoPartitions), HashPartitioning(rightKeys, Utils.defaultNoPartitions))
 
   override def doExecute(): RDD[InternalRow] = {
     println("in the Shuffled JOIN operator")
 
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = right.execute()
-
-    // we need to create an RDD[(key, row)] instead of RDD[row] in order to be able to repartition
-    // otherwise we wouldn't be able to know where to send each of these partitions
-    //var pairRDD = rightRDD.map( row => (row.get(rightCol, LongType).asInstanceOf[Long], row.copy()))
-    // repartition in the same way as the Indexed Data Frame
-    //pairRDD = pairRDD.partitionBy(Utils.defaultPartitioner)
 
     val leftSchema = StructType(left.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
     val rightSchema = StructType(right.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))

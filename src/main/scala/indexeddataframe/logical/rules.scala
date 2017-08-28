@@ -17,10 +17,21 @@ object IndexLocalRelation extends Rule[LogicalPlan] {
   }
 }
 
+/**
+  * set of rules to be applied for Indexed Data Frames
+  */
 object ConvertToIndexedOperators extends Rule[LogicalPlan] {
 
+  /**
+    * we need to keep track of which indexed data has been cached, much like Spark SQL's [CacheManager]
+    */
   private val cachedPlan: TrieMap[SparkPlan, IRDD] = new TrieMap[SparkPlan, IRDD]
 
+  /**
+    * check if a physical plan has already been cached; if so, return it, otherwise cache it
+    * @param plan
+    * @return
+    */
   private def getIfCached(plan: SparkPlan): IRDD = {
     val result = cachedPlan.get(plan)
     if (result == None) {
@@ -32,6 +43,11 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     }
   }
 
+  /**
+    * check if a logical plan is constructed with indexed operators
+    * @param plan
+    * @return
+    */
   def isIndexed(plan: LogicalPlan): Boolean = {
     plan.find {
       case _: IndexedOperator => true
@@ -39,6 +55,11 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     }.nonEmpty
   }
 
+  /**
+    * check if a physical plan is constructed with indexed operators
+    * @param plan
+    * @return
+    */
   def isIndexed(plan: SparkPlan): Boolean = {
     plan.find {
       case _: IndexedOperatorExec => true
@@ -48,12 +69,22 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
 
   def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
 
+    /**
+      * replace Spark's default .cache() method with our own cache implementation
+      * for indexed data frames
+      */
     case InMemoryRelationMatcher(output, storageLevel, child) if isIndexed(child) =>
       IndexedBlockRDD(output, getIfCached(child), child)
 
+    /**
+      * apply indexed join only on indexed data
+      */
     case p @ Join(left, right, joinType, condition) if isIndexed(p) =>
       IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)
 
+    /**
+      * apply indexed filtering only on filtered data
+      */
     case p @ Filter(condition, child) if isIndexed(child) =>
       IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
 

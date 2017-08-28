@@ -11,6 +11,8 @@ import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowJoiner
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.unsafe.hash
+import org.apache.spark.unsafe.hash.Murmur3_x86_32
 
 /**
   * this the internal data structure that stores a partition of an Indexed Data Frame
@@ -31,11 +33,13 @@ class InternalIndexedDF {
   private val rowBatches = new ArrayBuffer[RowBatch]
   private var nRowBatches = 0
 
-  // array that keeps the packed row information
-  // in each 64 bit number, for each row we keep
-  // a 12 bit batch number
-  // a 30 bit previous row id (in case the rows have similar keys
-  // a 22 bit offset in the row batch
+  /**
+    * array that keeps the packed row information
+    * in each 64 bit number, for each row we keep
+    * a 12 bit batch number
+    * a 30 bit previous row id (in case the rows have similar keys
+    * a 22 bit offset in the row batch
+    */
   private val rowInfo = new ArrayBuffer[Long]
 
   // the number of inserted rows in this partition
@@ -142,7 +146,9 @@ class InternalIndexedDF {
     val key = schema(indexCol).dataType match  {
       case LongType => row.asInstanceOf[UnsafeRow].getLong(indexCol)
       case IntegerType => row.asInstanceOf[UnsafeRow].getInt(indexCol).toLong
-      case StringType => row.asInstanceOf[UnsafeRow].getUTF8String(indexCol).toLong
+      // if the key is a string, just get the bytes and hash them
+      case StringType => Murmur3_x86_32.hashUnsafeBytes(row.asInstanceOf[UnsafeRow].getString(indexCol).getBytes(),
+                        Platform.BYTE_ARRAY_OFFSET, row.asInstanceOf[UnsafeRow].getString(indexCol).length, 42)
       case DoubleType => row.asInstanceOf[UnsafeRow].getDouble(indexCol).toLong
       // fall back to long as default
       case _ => row.asInstanceOf[UnsafeRow].getLong(indexCol)
@@ -207,8 +213,6 @@ class InternalIndexedDF {
 
       currentRow.pointTo(rowBatches(batchNo).rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
 
-      //println(crntRowId + " " + batchNo + " " + prevRowId + " " + offset + " " + currentRow.toString)
-
       // last row with this key
       if (~prevRowId == -(1<<30)) this.crntRowId = -1
       else this.crntRowId = prevRowId
@@ -226,7 +230,10 @@ class InternalIndexedDF {
      val internalKey = schema(indexCol).dataType match  {
        case LongType => key.asInstanceOf[Long]
        case IntegerType => key.asInstanceOf[Int].toLong
-       case StringType => key.asInstanceOf[UTF8String].toLong
+       // if the key is a string, just get the bytes and hash them
+       case StringType => Murmur3_x86_32.hashUnsafeBytes(key.asInstanceOf[String].getBytes(),
+              Platform.BYTE_ARRAY_OFFSET, key.asInstanceOf[String].length, 42)
+
        case DoubleType => key.asInstanceOf[Double].toLong
        // fall back to long as default
        case _ => key.asInstanceOf[Long]
@@ -316,7 +323,6 @@ class InternalIndexedDF {
     * @return
     */
   def multigetJoined(keys: Iterator[InternalRow], joiner: UnsafeRowJoiner, rightOutput: Seq[Attribute], joinRightCol: Int): Iterator[InternalRow] = {
-    //val keyProjection = UnsafeProjection.create(Seq(rightOutput(joinRightCol)), rightOutput)
     keys.flatMap { right =>
       val key = right.get(joinRightCol, schema(indexCol).dataType)
       get(key.asInstanceOf[AnyVal]).map { left =>
