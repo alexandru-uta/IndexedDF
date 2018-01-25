@@ -120,14 +120,14 @@ case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecN
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = right.execute()
 
-    val result = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
-      val idf = leftIter.next()
+    val zippedResult = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
+      val idf = leftIter.next().getShallowCopy()
       while (rightIter.hasNext) {
         idf.appendRow(rightIter.next())
       }
       Iterator(idf)
     }
-    Utils.ensureCached(new IRDD(leftRDD.colNo, result))
+    Utils.ensureCached(new IRDD(leftRDD.colNo, zippedResult))
   }
 }
 

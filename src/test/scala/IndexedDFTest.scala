@@ -51,8 +51,10 @@ class IndexedDFTtest extends FunSuite {
     val idf2 = idf.appendRows(df2)
 
     val rows = idf2.getRows(1234)
+    val rows2 = idf.getRows(1234)
 
-    assert(rows.collect().length == 3)
+    // check if the older dataframe does not see the update
+    assert(rows2.collect().length == 2 && rows.collect().length == 3)
   }
 
   test("join") {

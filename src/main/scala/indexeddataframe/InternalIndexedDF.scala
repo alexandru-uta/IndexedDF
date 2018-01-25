@@ -20,7 +20,7 @@ import org.apache.spark.unsafe.hash.Murmur3_x86_32
 class InternalIndexedDF {
 
   // the index data structure
-  private val index:TrieMap[Long, Int] = new TrieMap[Long, Int]
+  private var index:TrieMap[Long, Int] = null
 
   // the schema of the dataframe
   private var schema:StructType = null
@@ -30,8 +30,17 @@ class InternalIndexedDF {
   private var indexCol:Int = 0
 
   // the row batches in which we keep the row data
-  private val rowBatches = new ArrayBuffer[RowBatch]
+  private var rowBatches:ArrayBuffer[RowBatch] = null
   private var nRowBatches = 0
+
+  /**
+    * init internal data structures of the InternalIndexedDF
+    */
+  def initialize() = {
+    index = new TrieMap[Long, Int]
+    rowBatches = new ArrayBuffer[RowBatch]
+    rowInfo = new ArrayBuffer[Long]
+  }
 
   /**
     * array that keeps the packed row information
@@ -40,7 +49,7 @@ class InternalIndexedDF {
     * a 30 bit previous row id (in case the rows have similar keys
     * a 22 bit offset in the row batch
     */
-  private val rowInfo = new ArrayBuffer[Long]
+  private var rowInfo:ArrayBuffer[Long] = null
 
   // the number of inserted rows in this partition
   private var nRows:Int = 0
@@ -329,5 +338,26 @@ class InternalIndexedDF {
         joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
       }
     }
+  }
+
+  /**
+    * function that returns a shallow copy of the RowBatch
+    * but makes a snapshot of the CTrie (such that the new updates are not reflected in the old data structure)
+    */
+  def getShallowCopy(): InternalIndexedDF = {
+    val copy = new InternalIndexedDF
+    // take the snapshot
+    copy.index = this.index.snapshot()
+    // all the rest are shallow copies
+    copy.rowBatches = this.rowBatches
+    copy.schema = this.schema
+    copy.output = this.output
+    copy.indexCol = this.indexCol
+    copy.nRowBatches = this.nRowBatches
+    copy.rowInfo = this.rowInfo
+    copy.nRows = this.nRows
+
+    // return the copy
+    copy
   }
 }

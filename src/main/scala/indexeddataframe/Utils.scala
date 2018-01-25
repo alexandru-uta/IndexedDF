@@ -28,6 +28,7 @@ object Utils {
     */
   def doIndexing(colNo: Int, rows: Iterator[InternalRow], types: Seq[DataType], output: Seq[Attribute]): InternalIndexedDF = {
     val idf = new InternalIndexedDF
+    idf.initialize()
     idf.createIndex(types, output, colNo)
     idf.appendRows(rows)
     /*

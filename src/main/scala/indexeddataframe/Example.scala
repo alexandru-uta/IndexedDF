@@ -11,14 +11,14 @@ import indexeddataframe.logical.ConvertToIndexedOperators
 
 object Example extends App {
 
-  val nTimes = 10
+  val nTimes = 2
   val sparkSession = SparkSession.builder.
     master("local")
     .appName("spark test app")
     .config("spark.driver.maxResultSize", "40g")
     // use the concurrent mark sweep GC as it achieves better performance than the others (according
     // to our experiments)
-    .config("spark.executor.extraJavaOptions", "+UseConcMarkSweepGC -XX:+UseParNewGC")
+    .config("spark.executor.extraJavaOptions", "-XX:+UseConcMarkSweepGC -XX:+UseParNewGC")
     .config("spark.sql.shuffle.partitions", "16")
     // increase the delay scheduling wait so as to achieve higher chances of locality
     .config("spark.locality.wait", "10")
@@ -37,14 +37,14 @@ object Example extends App {
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pkp2.csv")
+    .load("/Users/alexuta/projects/IndexedDF/pkp3.csv")
 
   var smallDF = sparkSession.read
     .format("com.databricks.spark.csv")
     .option("header", "true")
     .option("delimiter", "|")
     .option("inferSchema", "true")
-    .load("/Users/alexanderuta/projects/IndexedDF/pers2.csv")
+    .load("/Users/alexuta/projects/IndexedDF/pers3.csv")
 
   smallDF = smallDF.cache()
   smallDF.collect()
