@@ -48,7 +48,7 @@ trait IndexedOperatorExec extends SparkPlan {
     */
   override def doExecute() = {
     sqlContext.sparkContext.emptyRDD
-    // throw new UnsupportedOperationException("use executeBlocked")
+    //throw new UnsupportedOperationException("use executeBlocked")
   }
 
   override def executeCollect(): Array[InternalRow] = {

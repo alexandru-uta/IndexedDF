@@ -18,6 +18,5 @@ class IndexedDatasetFunctions[T](ds: Dataset[T]) extends Serializable {
   }
   def getRows(key: AnyVal): DataFrame = {
     Dataset.ofRows(ds.sparkSession, GetRows(key, ds.logicalPlan))
-
   }
 }

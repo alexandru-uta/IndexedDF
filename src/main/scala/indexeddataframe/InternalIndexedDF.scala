@@ -1,7 +1,7 @@
 package indexeddataframe
 
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, JoinedRow, UnsafeProjection, UnsafeRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
 import org.apache.spark.sql.types._
 
 import scala.collection.concurrent.TrieMap
@@ -14,10 +14,20 @@ import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.unsafe.hash
 import org.apache.spark.unsafe.hash.Murmur3_x86_32
 
+
 /**
   * this the internal data structure that stores a partition of an Indexed Data Frame
   */
 class InternalIndexedDF {
+
+  // no. of bits to represent number of batches
+  private val NoBitsBatches: Int = 16
+  // no. of bits to represent the offsets inside batches
+  private val NoBitsOffsets: Int = 18
+  // no. of bits on which we represent rowbatch info
+  private val NoTotalBits: Int = 64
+  // rowbatch size
+  private val batchSize: Int = 1 << NoBitsOffsets
 
   // the index data structure
   private var index:TrieMap[Long, Int] = null
@@ -30,7 +40,7 @@ class InternalIndexedDF {
   private var indexCol:Int = 0
 
   // the row batches in which we keep the row data
-  private var rowBatches:ArrayBuffer[RowBatch] = null
+  private var rowBatches:TrieMap[Int, RowBatch] = null
   private var nRowBatches = 0
 
   /**
@@ -38,7 +48,7 @@ class InternalIndexedDF {
     */
   def initialize() = {
     index = new TrieMap[Long, Int]
-    rowBatches = new ArrayBuffer[RowBatch]
+    rowBatches = new TrieMap[Int, RowBatch]
     rowInfo = new ArrayBuffer[Long]
   }
 
@@ -58,7 +68,7 @@ class InternalIndexedDF {
     * function that creates a row batch
     */
   private def createRowBatch() = {
-    rowBatches.append(new RowBatch())
+    rowBatches.put(nRowBatches, new RowBatch(batchSize))
     nRowBatches += 1
   }
 
@@ -68,11 +78,11 @@ class InternalIndexedDF {
     * @return
     */
   private def getBatchForRow(row: Array[Byte]) = {
-    if (rowBatches(nRowBatches - 1).canInsert(row) == false) {
+    if (rowBatches.get(nRowBatches - 1).get.canInsert(row) == false) {
       // if this row cannot fit, create a new batch
       createRowBatch()
     }
-    rowBatches(nRowBatches - 1)
+    rowBatches.get(nRowBatches - 1).get
   }
 
   /**
@@ -95,6 +105,7 @@ class InternalIndexedDF {
 
   /**
     * function that packs the batchNo, rowId and offset of a row into a 64 bit number
+    * example:
     * @param batchNo -> 12 bits (4069 batches)
     * @param prevRowId -> 30 bits for the rowId (approx. 1 billion Rows)
     * @param offset -> 22 bits (4 MB batches)
@@ -103,14 +114,15 @@ class InternalIndexedDF {
     */
   private def packBatchRowIdOffset(batchNo: Integer, prevRowId: Integer, offset: Integer): Long = {
     var result:Long = 0
-    result = batchNo.toLong << 52 // put batchNo on the first 12 bits
-    result = result | (prevRowId.toLong << 22) // put rowId on the next 30 bits
+    result = batchNo.toLong << (NoTotalBits - NoBitsBatches) // put batchNo on the first 12 bits
+    result = result | (prevRowId.toLong << NoBitsOffsets) // put rowId on the next 30 bits
     result = result | offset // put offset on the last 22 bits
     result
   }
 
   /**
     * function that unpacks the batchNo, rowId and offset of a row from a 64 bit number
+    * example:
     * @param batchNo -> 12 bits (4069 batches)
     * @param prevRowId -> 30 bits for the rowId (approx. 1 billion Rows)
     * @param offset -> 22 bits (4 MB batches)
@@ -118,9 +130,9 @@ class InternalIndexedDF {
     * @return
     */
   private def unpackBatchRowIdOffset(value: Long): (Int, Int, Int) = {
-    val batchNo = (value >>> 52).toInt
-    val prevRowId = (((value << 12) >> 12) >>> 22).toInt
-    val offset = ((value << 42) >>> 42).toInt
+    val batchNo = (value >>> (NoTotalBits - NoBitsBatches)).toInt
+    val prevRowId = (((value << NoBitsBatches) >> NoBitsBatches) >>> NoBitsOffsets).toInt
+    val offset = ((value << (NoTotalBits - NoBitsOffsets)) >>> (NoTotalBits - NoBitsOffsets)).toInt
 
     (batchNo, prevRowId, offset)
   }
@@ -136,8 +148,8 @@ class InternalIndexedDF {
     val offset = unpacked._3
 
     var result = 0
-    if (rowBatches(batchNo).isLastRow(offset)) {
-      result = rowBatches(batchNo).getLastRowSize
+    if (rowBatches.get(batchNo).get.isLastRow(offset)) {
+      result = rowBatches.get(batchNo).get.getLastRowSize
     } else {
       // get info for the next row
       val unpacked2 = unpackBatchRowIdOffset(rowInfo(rowId + 1))
@@ -220,7 +232,7 @@ class InternalIndexedDF {
       val offset = unpacked._3
       val size = getSizeOfRow(crntRowId)
 
-      currentRow.pointTo(rowBatches(batchNo).rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
+      currentRow.pointTo(rowBatches.get(batchNo).get.rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
 
       // last row with this key
       if (~prevRowId == -(1<<30)) this.crntRowId = -1
@@ -293,7 +305,7 @@ class InternalIndexedDF {
 
         rowIndex += 1
 
-        currentRow.pointTo(rowBatches(batchNo).rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
+        currentRow.pointTo(rowBatches.get(batchNo).get.rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
         currentRow.copy()
       }
     }
@@ -346,14 +358,14 @@ class InternalIndexedDF {
     */
   def getShallowCopy(): InternalIndexedDF = {
     val copy = new InternalIndexedDF
-    // take the snapshot
+    // take the snapshot for both the index and rowbatches
     copy.index = this.index.snapshot()
+    copy.rowBatches = this.rowBatches.snapshot()
+    //System.out.println(copy.rowBatches.size() + "!!!!!")
     // all the rest are shallow copies
-    copy.rowBatches = this.rowBatches
     copy.schema = this.schema
     copy.output = this.output
     copy.indexCol = this.indexCol
-    copy.nRowBatches = this.nRowBatches
     copy.rowInfo = this.rowInfo
     copy.nRows = this.nRows
 

@@ -3,8 +3,8 @@ package indexeddataframe;
 import org.apache.spark.unsafe.Platform;
 
 class RowBatch {
-    // 4 MB batch
-    private static final int batchSize = 4 * 1024 * 1024;
+    // 4 MB batch by default
+    private int batchSize = 4 * 1024 * 1024;
     // the array that stores the data
     public byte[] rowData = null;
     // the current offset
@@ -14,7 +14,10 @@ class RowBatch {
     /**
      * constructor for the row batch
      */
-    public RowBatch() { rowData = new byte[batchSize]; }
+    public RowBatch(int batchSize) {
+        this.batchSize = batchSize;
+        rowData = new byte[batchSize];
+    }
 
     /**
      * function that appends a row and returns the offset at which it can be found
