@@ -73,14 +73,21 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
       * replace Spark's default .cache() method with our own cache implementation
       * for indexed data frames
       */
-    case InMemoryRelationMatcher(output, storageLevel, child) if isIndexed(child) =>
-      IndexedBlockRDD(output, getIfCached(child), child)
+    case m @ InMemoryRelationMatcher(output, storageLevel, child) if isIndexed(child) =>
+      child match {
+        case _ : IndexedOperatorExec => IndexedBlockRDD(output, getIfCached(child), child)
+        case _ => m
+      }
 
     /**
       * apply indexed join only on indexed data
       */
     case p @ Join(left, right, joinType, condition) if isIndexed(p) =>
-      IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)
+      left match {
+        case _ : IndexedOperator => IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)
+        case _ => p
+      }
+
 
     /**
       * apply indexed filtering only on filtered data

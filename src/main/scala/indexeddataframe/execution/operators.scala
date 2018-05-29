@@ -47,8 +47,9 @@ trait IndexedOperatorExec extends SparkPlan {
     * method. We therefore have to silently return an empty RDD here.
     */
   override def doExecute() = {
-    sqlContext.sparkContext.emptyRDD
+    //sqlContext.sparkContext.emptyRDD
     // throw new UnsupportedOperationException("use executeBlocked")
+    executeIndexed()
   }
 
   override def executeCollect(): Array[InternalRow] = {
