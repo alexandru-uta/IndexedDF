@@ -6,7 +6,9 @@ import org.apache.spark.sql.InMemoryRelationMatcher
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, Join, LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
-import indexeddataframe.logical.IndexedJoin
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
+import org.apache.spark.sql.catalyst.plans.JoinType
 
 import scala.collection.concurrent.TrieMap
 
@@ -67,33 +69,51 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     }.nonEmpty
   }
 
-  def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
+  /**
+    * Helper method to check if we are joining on an indexed column
+    * @param left
+    * @param right
+    * @param joinType
+    * @param condition
+    * @return
+    */
+  def joiningIndexedColumn(
+      left : IndexedBlockRDD,
+      right : LogicalPlan,
+      joinType : JoinType,
+      condition : Option[Expression]): Boolean = {
+    Join(left, right, joinType, condition) match {
+      case ExtractEquiJoinKeys(_, leftKeys, _, _, lChild, _) => {
+        var leftColNo = 0
+        var i = 0
+        lChild.output.foreach(col => {
+          if (col == leftKeys(0)) leftColNo = i
+          i += 1
+        })
 
+        leftColNo == left.asInstanceOf[IndexedBlockRDD].rdd.colNo
+      }
+    }
+  }
+
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
     /**
       * replace Spark's default .cache() method with our own cache implementation
       * for indexed data frames
       */
-    case m @ InMemoryRelationMatcher(output, storageLevel, child) if isIndexed(child) =>
-      child match {
-        case _ : IndexedOperatorExec => IndexedBlockRDD(output, getIfCached(child), child)
-        case _ => m
-      }
+    case InMemoryRelationMatcher(output, _, child : IndexedOperatorExec) =>
+      IndexedBlockRDD(output, getIfCached(child), child)
 
     /**
       * apply indexed join only on indexed data
       */
-    case p @ Join(left, right, joinType, condition) if isIndexed(p) =>
-      left match {
-        case _ : IndexedOperator => IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)
-        case _ => p
-      }
-
+    case Join(left : IndexedBlockRDD, right, joinType, condition) if joiningIndexedColumn(left, right, joinType, condition) =>
+      IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)
 
     /**
       * apply indexed filtering only on filtered data
       */
-    case p @ Filter(condition, child) if isIndexed(child) =>
+    case Filter(condition, child : IndexedOperator) =>
       IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
-
   }
 }

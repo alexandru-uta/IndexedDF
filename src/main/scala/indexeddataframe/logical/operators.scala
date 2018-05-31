@@ -85,15 +85,6 @@ case class IndexedBlockRDD(
     } else {
       Statistics(sizeInBytes = batchStats.value.longValue)
     }
-
-    /*
-    if (batchStats.value == 0L) {
-      // Underlying columnar RDD hasn't been materialized, no useful statistics information
-      // available, return the default statistics.
-      Statistics(sizeInBytes = child.sqlContext.conf.defaultSizeInBytes)
-    } else {
-      Statistics(sizeInBytes = batchStats.value.longValue)
-    }*/
   }
 }
 
