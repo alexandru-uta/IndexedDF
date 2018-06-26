@@ -80,6 +80,10 @@ object Example extends App {
                              "JOIN smalltable " +
                              "ON indexedtable.src = smalltable.id")
 
+
+  idf2.explain(true)
+  res.explain(true)
+
   var totalTime = 0.0
   for (i  <- 1 to nTimes) {
     val t1 = System.nanoTime()
@@ -100,7 +104,9 @@ object Example extends App {
 
   //println(idf2.count())
 
-  //res.show(500)
+  res.show(500)
+  df.show(10)
+  idf2.show(500)
 
   sparkSession.close()
   sparkSession.stop()

@@ -55,11 +55,11 @@ class RowBatch {
 
     /**
      * function that checks whether there is enough space to insert a new row
-     * @param crntRow
+     * @param rowSize: the size of the row to be inserted
      * @return
      */
-    public boolean canInsert(byte[] crntRow) {
-        if (size + crntRow.length >= batchSize)
+    public boolean canInsert(int rowSize) {
+        if (size + rowSize >= batchSize)
             return false;
         return true;
     }
@@ -71,4 +71,6 @@ class RowBatch {
     public int getLastRowSize() {
         return size - lastOffset;
     }
+
+    public int getCurrentOffset() { return size; }
 }

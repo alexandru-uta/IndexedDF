@@ -7,7 +7,7 @@ import indexeddataframe.implicits._
 import indexeddataframe.logical.ConvertToIndexedOperators
 
 
-class IndexedDFTtest extends FunSuite {
+class IndexedDFTest extends FunSuite {
 
   val sparkSession = SparkSession.builder.
     master("local")
@@ -25,9 +25,7 @@ class IndexedDFTtest extends FunSuite {
 
     val idf = df.createIndex(0)
 
-    val rows = idf.collect()
-
-    assert(rows.length == df.collect().length)
+    assert(idf.collect().length == df.collect().length)
   }
 
   test("getRows") {
