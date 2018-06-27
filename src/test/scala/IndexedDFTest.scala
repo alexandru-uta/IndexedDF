@@ -76,6 +76,28 @@ class IndexedDFTest extends FunSuite {
 
     val joinedDF = sparkSession.sql("select * from indextable join nonindextable on indextable.src = nonindextable.src")
 
+    joinedDF.explain(true)
+
+    joinedDF.show()
+    assert(joinedDF.collect().length == 2)
+  }
+
+  test("join2") {
+
+    val myDf = Seq((1234, 12345, "abcd"), (1234, 102, "abcde"), (1237, 120, "abcdef") ).toDF("src", "dst", "tag")
+    val df2 = Seq((1234, "test")).toDF("src", "data")
+
+    val myIDF = myDf.createIndex(1).cache()
+    //val myIDF = myDf.cache()
+
+    myIDF.createOrReplaceTempView("indextable")
+    df2.createOrReplaceTempView("nonindextable")
+
+    // Join on non indexed column. Should fallback to normal non-indexed joins.
+    val joinedDF = sparkSession.sql("select * from indextable join nonindextable on indextable.src = nonindextable.src")
+
+    joinedDF.explain(true)
+
     joinedDF.show()
     assert(joinedDF.collect().length == 2)
   }

@@ -7,6 +7,8 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expre
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LeafNode, LogicalPlan, UnaryNode}
 import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.catalyst.plans.logical.Statistics
+import org.apache.spark.util.LongAccumulator
 
 case class CreateIndex(val colNo: Int, child: LogicalPlan) extends UnaryNode with IndexedOperator {
   override def output: Seq[Attribute] = child.output
@@ -59,7 +61,9 @@ case class IndexedLocalRelation(output: Seq[Attribute], data: Seq[InternalRow])
   }
 }
 
-case class IndexedBlockRDD(output: Seq[Attribute], rdd: IRDD, child: SparkPlan)
+case class IndexedBlockRDD(
+      output: Seq[Attribute],
+      rdd: IRDD, child: SparkPlan)
   extends IndexedOperator with MultiInstanceRelation {
 
   override def children: Seq[LogicalPlan] = Nil
@@ -73,6 +77,15 @@ case class IndexedBlockRDD(output: Seq[Attribute], rdd: IRDD, child: SparkPlan)
   }
 
   override def producedAttributes: AttributeSet = outputSet
+
+  override lazy val statistics: Statistics = {
+    val batchStats: LongAccumulator = child.sqlContext.sparkContext.longAccumulator
+    if (batchStats.value == 0L) {
+      Statistics(sizeInBytes =  org.apache.spark.sql.internal.SQLConf.DEFAULT_SIZE_IN_BYTES.defaultValue.get)
+    } else {
+      Statistics(sizeInBytes = batchStats.value.longValue)
+    }
+  }
 }
 
 case class IndexedJoin(left: LogicalPlan,

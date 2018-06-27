@@ -22,7 +22,9 @@ object IndexedOperators extends Strategy {
       * we cannot have that on the indexed data frames as we would lose the indexing capabilities; therefore, we just
       * insert a dummy strategy that returns an operator which works on "indexed RDDs"
       */
-    case IndexedBlockRDD(output, rdd, child) => IndexedBlockRDDScanExec(output, rdd, child) :: Nil
+    case IndexedBlockRDD(output, rdd, child : IndexedOperatorExec) =>
+      IndexedBlockRDDScanExec(output, rdd, child.asInstanceOf[IndexedOperatorExec]) :: Nil
+
     case GetRows(key, child) => GetRowsExec(key, planLater(child)) :: Nil
     /**
       * dummy filter object for the moment; in the future, we will implement filtering functionality on the indexed data
@@ -30,8 +32,7 @@ object IndexedOperators extends Strategy {
     case IndexedFilter(condition, child) => IndexedFilterExec(condition, planLater(child)) :: Nil
     case IndexedJoin(left, right, joinType, condition) =>
       Join(left, right, joinType, condition) match {
-        case ExtractEquiJoinKeys(jointype, leftKeys, rightKeys, condition, lChild, rChild) => {
-
+        case ExtractEquiJoinKeys(_, leftKeys, rightKeys, _, lChild, rChild) => {
           // compute the index of the left side keys == column number
           var leftColNo = 0
           var i = 0
