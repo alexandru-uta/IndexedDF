@@ -127,7 +127,7 @@ object BenchmarkPrograms {
 
     //run a scan of an indexed dataframe
     runScan(indexedDF, sparkSession)
-    
+
     sparkSession.close()
     sparkSession.stop()
   }
