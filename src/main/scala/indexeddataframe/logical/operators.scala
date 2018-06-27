@@ -15,6 +15,7 @@ case class CreateIndex(val colNo: Int, child: LogicalPlan) extends UnaryNode wit
 }
 
 case class AppendRows(left: LogicalPlan, right: LogicalPlan) extends BinaryNode with IndexedOperator {
+
   override def output: Seq[Attribute] = left.output
 }
 
@@ -28,7 +29,6 @@ trait IndexedOperator extends LogicalPlan {
     * references to include all inputs to prevent Catalyst from dropping any input columns.
     */
   override def references: AttributeSet = inputSet
-
 
   def isIndexed: Boolean = children.exists(_.find {
     case p: IndexedOperator => p.isIndexed

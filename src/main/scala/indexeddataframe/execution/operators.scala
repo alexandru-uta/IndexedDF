@@ -3,11 +3,11 @@ package indexeddataframe.execution
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, UnsafeRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.catalyst.plans.physical._
-import org.apache.spark.sql.types.{StructField, StructType}
+import org.apache.spark.sql.types.{StructField, StructType, IntegerType}
 
 
 trait LeafExecNode extends SparkPlan {
@@ -38,17 +38,11 @@ trait IndexedOperatorExec extends SparkPlan {
   def indexColNo = 0
 
   /**
-    * An Indexed operator cannot return rows, so this method should normally not be invoked.
-    * Instead use executeBlocked, which returns the data as a collection of "indexed RDDs"
-    *
-    * However, when indexed data is cached, Spark SQL's InMemoryRelation attempts to call this
-    * method and persist the resulting RDD. [[ConvertToIndexedOperators]] later eliminates the dummy
-    * relation from the logical plan, but this only happens after InMemoryRelation has called this
-    * method. We therefore have to silently return an empty RDD here.
+    * if the indexed operator is required to return rows (i.e.,
+    * as for a regular spark DF operations) produce its rows by
+    * scanning the index
     */
   override def doExecute() = {
-    //sqlContext.sparkContext.emptyRDD
-    // throw new UnsupportedOperationException("use executeBlocked")
     executeIndexed()
   }
 
@@ -70,7 +64,6 @@ trait IndexedOperatorExec extends SparkPlan {
     resultRDD.collect()
   }
 
-  // TODO: this needs to be redone!!!!
   def executeMultiGetRows(keys: Array[AnyVal]): Array[InternalRow] = {
     val resultRDD = executeIndexed().multiget(keys)
     resultRDD.collect()
@@ -122,7 +115,7 @@ case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecN
     val rightRDD = right.execute()
 
     val zippedResult = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
-      val idf = leftIter.next().getShallowCopy()
+      val idf = leftIter.next().getSnapshot()
       while (rightIter.hasNext) {
         idf.appendRow(rightIter.next())
       }
@@ -212,6 +205,7 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
 
     val result = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
       // generate an unsafe row joiner
+      leftSchema.add("prev", IntegerType)
       val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
       if (leftIter.hasNext) {
         val result = leftIter.next().multigetJoined(rightIter, joiner, right.output, rightCol)

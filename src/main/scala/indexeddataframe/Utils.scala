@@ -107,7 +107,7 @@ class IRDD(val colNo: Int, var partitionsRDD: RDD[InternalIndexedDF])
     res
   }
 
-  /** TODO: REDO this, it is not correct now!!! (many things have changed since its first implementation
+  /**
     * RDD method that returns an RDD of rows containing the searched keys
     * @param keys
     * @return

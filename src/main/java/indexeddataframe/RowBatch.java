@@ -3,8 +3,8 @@ package indexeddataframe;
 import org.apache.spark.unsafe.Platform;
 
 class RowBatch {
-    // 4 MB batch
-    private static final int batchSize = 4 * 1024 * 1024;
+    // 4 MB batch by default
+    private int batchSize = 4 * 1024 * 1024;
     // the array that stores the data
     public byte[] rowData = null;
     // the current offset
@@ -14,7 +14,10 @@ class RowBatch {
     /**
      * constructor for the row batch
      */
-    public RowBatch() { rowData = new byte[batchSize]; }
+    public RowBatch(int batchSize) {
+        this.batchSize = batchSize;
+        rowData = new byte[batchSize];
+    }
 
     /**
      * function that appends a row and returns the offset at which it can be found
@@ -52,11 +55,11 @@ class RowBatch {
 
     /**
      * function that checks whether there is enough space to insert a new row
-     * @param crntRow
+     * @param rowSize: the size of the row to be inserted
      * @return
      */
-    public boolean canInsert(byte[] crntRow) {
-        if (size + crntRow.length >= batchSize)
+    public boolean canInsert(int rowSize) {
+        if (size + rowSize >= batchSize)
             return false;
         return true;
     }
@@ -68,4 +71,6 @@ class RowBatch {
     public int getLastRowSize() {
         return size - lastOffset;
     }
+
+    public int getCurrentOffset() { return size; }
 }

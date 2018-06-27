@@ -7,7 +7,7 @@ import indexeddataframe.implicits._
 import indexeddataframe.logical.ConvertToIndexedOperators
 
 
-class IndexedDFTtest extends FunSuite {
+class IndexedDFTest extends FunSuite {
 
   val sparkSession = SparkSession.builder.
     master("local")
@@ -25,9 +25,7 @@ class IndexedDFTtest extends FunSuite {
 
     val idf = df.createIndex(0)
 
-    val rows = idf.collect()
-
-    assert(rows.length == df.collect().length)
+    assert(idf.collect().length == df.collect().length)
   }
 
   test("getRows") {
@@ -51,6 +49,8 @@ class IndexedDFTtest extends FunSuite {
     val idf2 = idf.appendRows(df2)
     val idf3 = idf2.appendRows(df2)
 
+    //idf2.explain()
+    //idf3.explain()
 
     val rows = idf.getRows(1234)
     val rows2 = idf2.getRows(1234)
@@ -111,5 +111,30 @@ class IndexedDFTtest extends FunSuite {
     val result = myIDF.getRows("abcde".asInstanceOf[AnyVal])
 
     assert(result.collect().length == 2)
+  }
+
+  test ("divergence") {
+
+    val d1 = Seq((1230, 12345, "sdsad"), (1234, 12345, "abcd"), (1234, 12, "abcde"), (1237, 120, "abcdef") ).toDF("src", "dst", "tag").cache()
+    val d2 = Seq((1235, 7546, "a")).toDF("src", "dst", "tag")
+    val d3 = Seq((1236, 7546, "a")).toDF("src", "dst", "tag")
+
+    val table1 = d1.createIndex(0).cache()
+    val table2 = table1.appendRows(d2)
+    val table3 = table1.appendRows(d3)
+
+    //idf2.explain()
+    //idf3.explain()
+
+    //val rows = table1.getRows(1234)
+    val rows2 = table2.getRows(1236)
+    val rows3 = table3.getRows(1235)
+
+    val r3 = rows3.collect()
+    val r2 = rows2.collect()
+    //val r1 = rows.collect()
+
+    // check if the older dataframe does not see the update
+    assert(r2.length == 0 && r3.length == 0)
   }
 }
