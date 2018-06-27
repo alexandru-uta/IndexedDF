@@ -3,15 +3,10 @@ package indexeddataframe
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.types._
-
 import scala.collection.concurrent.TrieMap
-import scala.collection.mutable.ArrayBuffer
 import indexeddataframe.RowBatch
-import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner, UnsafeRowJoiner}
 import org.apache.spark.unsafe.Platform
-import org.apache.spark.unsafe.types.UTF8String
-import org.apache.spark.unsafe.hash
 import org.apache.spark.unsafe.hash.Murmur3_x86_32
 
 
@@ -25,10 +20,10 @@ class InternalIndexedDF {
    */
   // no. of bits to represent number of batches
   // this accounts for 4B batches
-  private val NoBitsBatches: Int = 32
+  private val NoBitsBatches: Int = 22
   // no. of bits to represent the offsets inside batches
   // this accounts for 4MB batches
-  private val NoBitsOffsets: Int = 22
+  private val NoBitsOffsets: Int = 32
   // no. of bits on which we represent rowbatch info
   private val NoTotalBits: Int = 64
   // the number of bits to represent the row size inside a packed 64 bit integer
@@ -36,7 +31,7 @@ class InternalIndexedDF {
   private val NoRowSizeBits: Int = NoTotalBits - NoBitsOffsets - NoBitsBatches
 
   // rowbatch size
-  private val batchSize: Int = 1 << NoBitsOffsets
+  private val batchSize: Int = (1 * 1024 * 1024)
 
   // the index data structure
   private var index:TrieMap[Long, Long] = null
