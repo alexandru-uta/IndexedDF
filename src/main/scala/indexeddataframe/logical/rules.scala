@@ -91,6 +91,7 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
           i += 1
         })
 
+        println("it gets here: " + leftColNo)
         leftColNo == left.asInstanceOf[IndexedBlockRDD].rdd.colNo
       }
     }
@@ -113,7 +114,7 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     /**
       * apply indexed filtering only on filtered data
       */
-    case Filter(condition, child : IndexedOperator) =>
-      IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
+    case Filter(condition, child : IndexedOperator) => child.asInstanceOf[IndexedBlockRDD]
+      //IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
   }
 }
