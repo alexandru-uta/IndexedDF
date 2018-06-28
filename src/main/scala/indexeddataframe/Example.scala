@@ -87,6 +87,7 @@ object BenchmarkPrograms {
     var partitions = ""
 
     if (args.length != 5) {
+      println("your args were: ")
       println("not enough arguments!")
       println("please provide the delimiters of the csv files, the paths, and the number of partitions")
       System.exit(0)
@@ -122,17 +123,17 @@ object BenchmarkPrograms {
     var edgesDF = sparkSession.read
       .format("com.databricks.spark.csv")
       .option("header", "true")
-      .option("delimiter", "|")
+      .option("delimiter", delimiter1)
       .option("inferSchema", "true")
-      .load("/Users/alexuta/projects/IndexedDF/pkp3.csv")
+      .load(path1)
 
     // load vertices for a graph
     var nodesDF = sparkSession.read
       .format("com.databricks.spark.csv")
       .option("header", "true")
-      .option("delimiter", "|")
+      .option("delimiter", delimiter2)
       .option("inferSchema", "true")
-      .load("/Users/alexuta/projects/IndexedDF/pers3.csv")
+      .load(path2)
 
     // cache the nodes and trigger the execution
     nodesDF = nodesDF.cache()
@@ -143,9 +144,9 @@ object BenchmarkPrograms {
 
     // run a join between the edges of the graph and its nodes
     runJoin(indexedDF, nodesDF, sparkSession)
-    
+
     //run a scan of an indexed dataframe
-    runScan(indexedDF, sparkSession)
+    //runScan(indexedDF, sparkSession)
 
     sparkSession.close()
     sparkSession.stop()
