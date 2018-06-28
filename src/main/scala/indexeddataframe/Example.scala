@@ -38,6 +38,8 @@ object BenchmarkPrograms {
       "JOIN vertices " +
       "ON edges.src = vertices.id")
 
+    res.explain(true)
+
     // run the join a few times and compute the average
     var totalTime = 0.0
     for (i <- 1 to nTimesRun) {
@@ -78,6 +80,24 @@ object BenchmarkPrograms {
 
   def main(args: Array[String]): Unit = {
 
+    var delimiter1 = ""
+    var delimiter2 = ""
+    var path1 = ""
+    var path2 = ""
+    var partitions = ""
+
+    if (args.length != 5) {
+      println("not enough arguments!")
+      println("please provide the delimiters of the csv files, the paths, and the number of partitions")
+      System.exit(0)
+    } else {
+      delimiter1 = args(0)
+      path1 = args(1)
+      delimiter2 = args(2)
+      path2 = args(3)
+      partitions = args(4)
+    }
+
     val sparkSession = SparkSession.builder.
       master("local")
       .appName("spark test app")
@@ -85,7 +105,7 @@ object BenchmarkPrograms {
       // use the concurrent mark sweep GC as it achieves better performance than the others (according
       // to our experiments)
       .config("spark.executor.extraJavaOptions", "-XX:+UseConcMarkSweepGC -XX:+UseParNewGC")
-      .config("spark.sql.shuffle.partitions", "8")
+      .config("spark.sql.shuffle.partitions", partitions)
       // increase the delay scheduling wait so as to achieve higher chances of locality
       .config("spark.locality.wait", "10")
       // use this, as otherwise, the join can be scheduled with locality for the "right" relation, which is not desirable
@@ -122,9 +142,8 @@ object BenchmarkPrograms {
     val indexedDF = createIndexAndCache(edgesDF)
 
     // run a join between the edges of the graph and its nodes
-    //runJoin(indexedDF, nodesDF, sparkSession)
-
-
+    runJoin(indexedDF, nodesDF, sparkSession)
+    
     //run a scan of an indexed dataframe
     runScan(indexedDF, sparkSession)
 
