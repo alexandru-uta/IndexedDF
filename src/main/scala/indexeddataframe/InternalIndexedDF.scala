@@ -20,10 +20,10 @@ class InternalIndexedDF {
    */
   // no. of bits to represent number of batches
   // this accounts for 4B batches
-  private val NoBitsBatches: Int = 22
+  private val NoBitsBatches: Int = 30
   // no. of bits to represent the offsets inside batches
   // this accounts for 4MB batches
-  private val NoBitsOffsets: Int = 32
+  private val NoBitsOffsets: Int = 24
   // no. of bits on which we represent rowbatch info
   private val NoTotalBits: Int = 64
   // the number of bits to represent the row size inside a packed 64 bit integer
@@ -31,7 +31,7 @@ class InternalIndexedDF {
   private val NoRowSizeBits: Int = NoTotalBits - NoBitsOffsets - NoBitsBatches
 
   // rowbatch size
-  private val batchSize: Int = (1 * 1024 * 1024)
+  private val batchSize: Int = (4 * 1024 * 1024)
 
   // the index data structure
   private var index:TrieMap[Long, Long] = null

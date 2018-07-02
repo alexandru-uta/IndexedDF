@@ -78,6 +78,28 @@ object BenchmarkPrograms {
     println("scan on Indexed DataFrame took %f ms".format((totalTime / ((nTimesRun - 1) * 1000000.0))))
   }
 
+  def runFilter(indexedDF: DataFrame, sparkSession: SparkSession) = {
+
+    indexedDF.createOrReplaceTempView("edges")
+
+    val res = sparkSession.sql("SELECT * FROM edges where edges.src > 100000000")
+
+    // run the scan a few times and compute the average
+    var totalTime = 0.0
+    for (i <- 1 to nTimesRun) {
+      val t1 = System.nanoTime()
+
+      triggerExecutionDF(res)
+
+      val t2 = System.nanoTime()
+      println("filter iteration %d took %f".format(i, (t2 - t1) / 1000000.0))
+
+      if (i > 1) totalTime += (t2 - t1)
+    }
+
+    println("filter on Indexed DataFrame took %f ms".format((totalTime / ((nTimesRun - 1) * 1000000.0))))
+  }
+
   def main(args: Array[String]): Unit = {
 
     var delimiter1 = ""
@@ -86,8 +108,11 @@ object BenchmarkPrograms {
     var path2 = ""
     var partitions = ""
 
+
     if (args.length != 5) {
       println("your args were: ")
+      args.foreach( arg => print(arg + " "))
+      println()
       println("not enough arguments!")
       println("please provide the delimiters of the csv files, the paths, and the number of partitions")
       System.exit(0)
@@ -137,16 +162,21 @@ object BenchmarkPrograms {
 
     // cache the nodes and trigger the execution
     nodesDF = nodesDF.cache()
+    //edgesDF = edgesDF.cache()
     triggerExecutionDF(nodesDF)
+    //triggerExecutionDF(edgesDF)
 
     // create the Index and cache the indexed DF
     val indexedDF = createIndexAndCache(edgesDF)
 
     // run a join between the edges of the graph and its nodes
-    runJoin(indexedDF, nodesDF, sparkSession)
+    //runJoin(indexedDF, nodesDF, sparkSession)
 
     //run a scan of an indexed dataframe
-    //runScan(indexedDF, sparkSession)
+    runScan(indexedDF, sparkSession)
+
+    // run a filter on an indexed dataframe
+    //runFilter(indexedDF, sparkSession)
 
     sparkSession.close()
     sparkSession.stop()
