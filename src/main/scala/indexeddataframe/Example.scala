@@ -107,9 +107,10 @@ object BenchmarkPrograms {
     var path1 = ""
     var path2 = ""
     var partitions = ""
+    var master = ""
 
 
-    if (args.length != 5) {
+    if (args.length != 6) {
       println("your args were: ")
       args.foreach( arg => print(arg + " "))
       println()
@@ -122,10 +123,11 @@ object BenchmarkPrograms {
       delimiter2 = args(2)
       path2 = args(3)
       partitions = args(4)
+      master = args(5)
     }
 
     val sparkSession = SparkSession.builder.
-      master("local")
+      master(master)
       .appName("spark test app")
       .config("spark.driver.maxResultSize", "40g")
       // use the concurrent mark sweep GC as it achieves better performance than the others (according
