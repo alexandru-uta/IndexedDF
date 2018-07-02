@@ -20,10 +20,10 @@ class InternalIndexedDF {
    */
   // no. of bits to represent number of batches
   // this accounts for 4B batches
-  private val NoBitsBatches: Int = 30
+  private val NoBitsBatches: Int = 32
   // no. of bits to represent the offsets inside batches
   // this accounts for 4MB batches
-  private val NoBitsOffsets: Int = 24
+  private val NoBitsOffsets: Int = 22
   // no. of bits on which we represent rowbatch info
   private val NoTotalBits: Int = 64
   // the number of bits to represent the row size inside a packed 64 bit integer

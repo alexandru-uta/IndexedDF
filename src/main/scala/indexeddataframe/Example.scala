@@ -100,6 +100,50 @@ object BenchmarkPrograms {
     println("filter on Indexed DataFrame took %f ms".format((totalTime / ((nTimesRun - 1) * 1000000.0))))
   }
 
+  def runAgg(indexedDF: DataFrame, sparkSession: SparkSession) = {
+
+    indexedDF.createOrReplaceTempView("edges")
+
+    val res = sparkSession.sql("SELECT sum(src) FROM edges")
+
+    // run the scan a few times and compute the average
+    var totalTime = 0.0
+    for (i <- 1 to nTimesRun) {
+      val t1 = System.nanoTime()
+
+      triggerExecutionDF(res)
+
+      val t2 = System.nanoTime()
+      println("agg iteration %d took %f".format(i, (t2 - t1) / 1000000.0))
+
+      if (i > 1) totalTime += (t2 - t1)
+    }
+
+    println("agg on Indexed DataFrame took %f ms".format((totalTime / ((nTimesRun - 1) * 1000000.0))))
+  }
+
+  def runProj(indexedDF: DataFrame, sparkSession: SparkSession) = {
+
+    indexedDF.createOrReplaceTempView("edges")
+
+    val res = sparkSession.sql("SELECT dst FROM edges")
+
+    // run the scan a few times and compute the average
+    var totalTime = 0.0
+    for (i <- 1 to nTimesRun) {
+      val t1 = System.nanoTime()
+
+      triggerExecutionDF(res)
+
+      val t2 = System.nanoTime()
+      println("proj iteration %d took %f".format(i, (t2 - t1) / 1000000.0))
+
+      if (i > 1) totalTime += (t2 - t1)
+    }
+
+    println("proj on Indexed DataFrame took %f ms".format((totalTime / ((nTimesRun - 1) * 1000000.0))))
+  }
+
   def main(args: Array[String]): Unit = {
 
     var delimiter1 = ""
@@ -172,13 +216,19 @@ object BenchmarkPrograms {
     val indexedDF = createIndexAndCache(edgesDF)
 
     // run a join between the edges of the graph and its nodes
-    //runJoin(indexedDF, nodesDF, sparkSession)
+    runJoin(indexedDF, nodesDF, sparkSession)
 
     //run a scan of an indexed dataframe
     runScan(indexedDF, sparkSession)
 
     // run a filter on an indexed dataframe
-    //runFilter(indexedDF, sparkSession)
+    runFilter(indexedDF, sparkSession)
+
+    // run an aggregate on an indexed dataframe
+    runAgg(indexedDF, sparkSession)
+
+    // run a projection on an indexed dataframe
+    runProj(indexedDF, sparkSession)
 
     sparkSession.close()
     sparkSession.stop()
