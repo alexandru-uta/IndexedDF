@@ -7,7 +7,8 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expre
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.catalyst.plans.physical._
-import org.apache.spark.sql.types.{StructField, StructType, IntegerType}
+import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
+import org.slf4j.LoggerFactory
 
 
 trait LeafExecNode extends SparkPlan {
@@ -31,6 +32,8 @@ trait BinaryExecNode extends SparkPlan {
 }
 
 trait IndexedOperatorExec extends SparkPlan {
+  private val logger = LoggerFactory.getLogger(classOf[IndexedOperatorExec])
+
   //override def outputPartitioning: Partitioning = child.outputPartitioning
   def executeIndexed(): IRDD
 
@@ -47,12 +50,12 @@ trait IndexedOperatorExec extends SparkPlan {
   }
 
   override def executeCollect(): Array[InternalRow] = {
-      println("executing the collect operator")
-      executeIndexed().collect()
+    logger.debug("executing the collect operator")
+    executeIndexed().collect()
   }
 
   override def executeTake(n: Int): Array[InternalRow] = {
-    println("executing the take operator")
+    logger.debug("executing the take operator")
     if (n == 0) {
       return new Array[InternalRow](0)
     }
@@ -76,6 +79,8 @@ trait IndexedOperatorExec extends SparkPlan {
   * @param child
   */
 case class CreateIndexExec(override val indexColNo: Int, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
+  private val logger = LoggerFactory.getLogger(classOf[CreateIndexExec])
+
   override def output: Seq[Attribute] = child.output
 
   // we need to repartition when creating the Index in order to know how to partition the appends and join probes
@@ -83,7 +88,7 @@ case class CreateIndexExec(override val indexColNo: Int, child: SparkPlan) exten
   override def requiredChildDistribution: Seq[Distribution] = Seq(ClusteredDistribution(Seq(child.output(indexColNo))))
 
   override def executeIndexed(): IRDD = {
-    println("executing the createIndex operator")
+    logger.debug("executing the createIndex operator")
 
     // create the index
     val partitions = child.execute().mapPartitions[InternalIndexedDF](
@@ -100,6 +105,8 @@ case class CreateIndexExec(override val indexColNo: Int, child: SparkPlan) exten
   * @param right a regular DataFrame
   */
 case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecNode with IndexedOperatorExec {
+  private val logger = LoggerFactory.getLogger(classOf[AppendRowsExec])
+
   override def output: Seq[Attribute] = left.output
 
   override def indexColNo = left.asInstanceOf[IndexedOperatorExec].indexColNo
@@ -110,7 +117,7 @@ case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecN
                                                               ClusteredDistribution(Seq(right.output(distributionOutput))))
 
   override def executeIndexed(): IRDD = {
-    println("executing the appendRows operator")
+    logger.debug("executing the appendRows operator")
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = right.execute()
 
@@ -135,12 +142,13 @@ case class AppendRowsExec(left: SparkPlan, right: SparkPlan) extends BinaryExecN
   */
 case class IndexedBlockRDDScanExec(output: Seq[Attribute], rdd: IRDD, child: SparkPlan)
   extends LeafExecNode with IndexedOperatorExec {
+  private val logger = LoggerFactory.getLogger(classOf[IndexedBlockRDDScanExec])
 
   override def indexColNo = child.asInstanceOf[IndexedOperatorExec].indexColNo
   override def outputPartitioning: Partitioning = child.outputPartitioning
 
   override def executeIndexed(): IRDD = {
-    println("executing the cache() operator")
+    logger.debug("executing the cache() operator")
 
     Utils.ensureCached(rdd)
   }
@@ -187,6 +195,7 @@ case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends Un
   */
 case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int,
                                        leftKeys: Seq[Expression], rightKeys: Seq[Expression]) extends BinaryExecNode {
+  private val logger = LoggerFactory.getLogger(classOf[IndexedShuffledEquiJoinExec])
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
@@ -195,7 +204,7 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
   override def requiredChildDistribution: Seq[Distribution] =  Seq(ClusteredDistribution(leftKeys), ClusteredDistribution(rightKeys))
 
   override def doExecute(): RDD[InternalRow] = {
-    println("in the Shuffled JOIN operator")
+    logger.debug("in the Shuffled JOIN operator")
 
     val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
     val rightRDD = right.execute()
@@ -226,11 +235,12 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
   * @param rightCol
   */
 case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCol: Int, rightCol: Int) extends BinaryExecNode {
+  private val logger = LoggerFactory.getLogger(classOf[IndexedBroadcastEquiJoinExec])
 
   override def output: Seq[Attribute] = left.output ++ right.output
 
   override def doExecute(): RDD[InternalRow] = {
-    println("in the Broadcast JOIN operator")
+    logger.debug("in the Broadcast JOIN operator")
 
     val leftSchema = StructType(left.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
     val rightSchema = StructType(right.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
@@ -241,7 +251,7 @@ case class IndexedBroadcastEquiJoinExec(left: SparkPlan, right: SparkPlan, leftC
     val rightRDD = sparkContext.broadcast(right.executeCollect())
     val t2 = System.nanoTime()
 
-    println("collect + broadcast time = %f".format( (t2-t1) / 1000000.0))
+    logger.debug("collect + broadcast time = %f".format( (t2-t1) / 1000000.0))
 
     val result = leftRDD.multigetBroadcast(rightRDD, leftSchema, rightSchema, right.output, rightCol)
     result

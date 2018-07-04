@@ -9,6 +9,7 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
 import org.apache.spark.sql.catalyst.plans.JoinType
+import org.slf4j.LoggerFactory
 
 import scala.collection.concurrent.TrieMap
 
@@ -91,7 +92,6 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
           i += 1
         })
 
-        println("it gets here: " + leftColNo)
         leftColNo == left.asInstanceOf[IndexedBlockRDD].rdd.colNo
       }
     }
