@@ -8,6 +8,7 @@ import indexeddataframe.execution.IndexedOperatorExec
 import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
 import indexeddataframe.implicits._
 import indexeddataframe.logical.ConvertToIndexedOperators
+import org.apache.spark.sql.types._
 
 object BenchmarkPrograms {
 
@@ -190,12 +191,26 @@ object BenchmarkPrograms {
     sparkSession.experimental.extraStrategies = (Seq(IndexedOperators) ++ sparkSession.experimental.extraStrategies)
     sparkSession.experimental.extraOptimizations = (Seq(ConvertToIndexedOperators) ++ sparkSession.experimental.extraOptimizations)
 
+    val edgeSchema = StructType(Array(
+      StructField("src", LongType, false),
+      StructField("dst", LongType, false),
+      StructField("creationDate", StringType, true)))
+    val nodeSchema = StructType(Array(
+      StructField("id", LongType, false),
+      StructField("firstName", StringType, true),
+      StructField("lastName", StringType, true),
+      StructField("gender", StringType, true),
+      StructField("birthday", DateType, true),
+      StructField("creationDate", StringType, true),
+      StructField("locationIP", StringType, true),
+      StructField("browserUsed", StringType, true)))
+
     // load edges for a graph
     var edgesDF = sparkSession.read
       .format("com.databricks.spark.csv")
       .option("header", "true")
       .option("delimiter", delimiter1)
-      .option("inferSchema", "true")
+      .schema(edgeSchema)
       .load(path1)
 
     // load vertices for a graph
@@ -203,7 +218,7 @@ object BenchmarkPrograms {
       .format("com.databricks.spark.csv")
       .option("header", "true")
       .option("delimiter", delimiter2)
-      .option("inferSchema", "true")
+      .schema(nodeSchema)
       .load(path2)
 
     // cache the nodes and trigger the execution

@@ -6,7 +6,7 @@ import org.apache.spark.sql.InMemoryRelationMatcher
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, Join, LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, EqualTo, Expression, IsNotNull}
 import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.slf4j.LoggerFactory
@@ -97,6 +97,15 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     }
   }
 
+  def filterIndexedColumn(
+     child : IndexedBlockRDD,
+     attributeReference : AttributeReference): Boolean = {
+
+    val indexedColNo = child.rdd.colNo
+    val indexedAttrRef = child.output(indexedColNo)
+    attributeReference == indexedAttrRef
+  }
+
   def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
     /**
       * replace Spark's default .cache() method with our own cache implementation
@@ -114,7 +123,12 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     /**
       * apply indexed filtering only on filtered data
       */
-    case Filter(condition, child : IndexedOperator) => child.asInstanceOf[IndexedBlockRDD]
-      //IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
+
+    case Filter(IsNotNull(attr: AttributeReference), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
+      child.asInstanceOf[IndexedBlockRDD]
+
+    case Filter(condition @ EqualTo(attr: AttributeReference, _), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
+      IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
+
   }
 }

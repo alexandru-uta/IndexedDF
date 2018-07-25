@@ -3,7 +3,7 @@ package indexeddataframe.execution
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, EqualTo, Expression, Literal}
 import indexeddataframe.{IRDD, InternalIndexedDF, Utils}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.catalyst.plans.physical._
@@ -176,12 +176,22 @@ case class GetRowsExec(key: AnyVal, child: SparkPlan) extends UnaryExecNode {
   * @param condition
   * @param child
   */
-case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends UnaryExecNode with IndexedOperatorExec {
+case class IndexedFilterExec(condition: Expression, child: SparkPlan) extends UnaryExecNode {
   override def output: Seq[Attribute] = child.output
 
-  override def indexColNo = child.asInstanceOf[IndexedOperatorExec].indexColNo
   override def outputPartitioning: Partitioning = child.outputPartitioning
-  override def executeIndexed(): IRDD = child.asInstanceOf[IndexedOperatorExec].executeIndexed()
+  override def doExecute(): RDD[InternalRow] = {
+    condition match {
+      case EqualTo(_, literalValue: Literal) => {
+        val key = literalValue.value.asInstanceOf[AnyVal]
+        val rdd = child.asInstanceOf[IndexedOperatorExec].executeIndexed()
+        val resultRDD = rdd.get(key)
+
+        resultRDD
+      }
+      case _ => null
+    }
+  }
 }
 
 /**

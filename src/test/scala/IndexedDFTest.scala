@@ -40,6 +40,18 @@ class IndexedDFTest extends FunSuite {
     assert(rows.collect().length == 2)
   }
 
+  test("filter") {
+
+    val df = Seq((1234, 12345, "abcd"), (1234, 12, "abcde"), (1237, 120, "abcdef") ).toDF("src", "dst", "tag").cache()
+    val idf = df.createIndex(0)
+    idf.createOrReplaceTempView("idf")
+
+    val rows = sparkSession.sql("SELECT * FROM idf WHERE src = 1234")
+    rows.show()
+
+    assert(rows.collect().length == 2)
+  }
+
   test("appendRows") {
 
     val df = Seq((1234, 12345, "abcd"), (1234, 12, "abcde"), (1237, 120, "abcdef") ).toDF("src", "dst", "tag").cache()
