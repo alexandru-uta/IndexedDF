@@ -216,23 +216,43 @@ case class IndexedShuffledEquiJoinExec(left: SparkPlan, right: SparkPlan, leftCo
   override def doExecute(): RDD[InternalRow] = {
     logger.debug("in the Shuffled JOIN operator")
 
-    val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
-    val rightRDD = right.execute()
-
     val leftSchema = StructType(left.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
     val rightSchema = StructType(right.output.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
 
-    val result = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
-      // generate an unsafe row joiner
-      leftSchema.add("prev", IntegerType)
-      val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
-      if (leftIter.hasNext) {
-        val result = leftIter.next().multigetJoined(rightIter, joiner, right.output, rightCol)
+    left match {
+      case _: IndexedOperatorExec => {
+        val leftRDD = left.asInstanceOf[IndexedOperatorExec].executeIndexed()
+        val rightRDD = right.execute()
+
+        val result = leftRDD.partitionsRDD.zipPartitions(rightRDD, true) { (leftIter, rightIter) =>
+          // generate an unsafe row joiner
+          leftSchema.add("prev", IntegerType)
+          val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
+          if (leftIter.hasNext) {
+            val result = leftIter.next().multigetJoinedRight(rightIter, joiner, right.output, rightCol)
+            result
+          }
+          else Iterator(null)
+        }
         result
       }
-      else Iterator(null)
+      case _ => {
+        val leftRDD = left.execute()
+        val rightRDD = right.asInstanceOf[IndexedOperatorExec].executeIndexed()
+
+        val result = rightRDD.partitionsRDD.zipPartitions(leftRDD, true) { (rightIter, leftIter) =>
+          // generate an unsafe row joiner
+          rightSchema.add("prev", IntegerType)
+          val joiner = GenerateUnsafeRowJoiner.create(leftSchema, rightSchema)
+          if (rightIter.hasNext) {
+            val result = rightIter.next().multigetJoinedLeft(leftIter, joiner, left.output, leftCol)
+            result
+          }
+          else Iterator(null)
+        }
+        result
+      }
     }
-    result
   }
 
 }

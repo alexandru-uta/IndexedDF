@@ -114,6 +114,24 @@ class IndexedDFTest extends FunSuite {
     assert(joinedDF.collect().length == 2)
   }
 
+//  test("joinright") {
+//
+//    val myDf = Seq((1234, 12345, "abcd"), (1234, 102, "abcde"), (1237, 120, "abcdef") ).toDF("src", "dst", "tag")
+//    val df2 = Seq((1234, "test")).toDF("src", "data")
+//
+//    val myIDF = myDf.createIndex(0).cache()
+//
+//    myIDF.createOrReplaceTempView("indextable")
+//    df2.createOrReplaceTempView("nonindextable")
+//
+//    val joinedDF = sparkSession.sql("select * from nonindextable join indextable on indextable.src = nonindextable.src")
+//
+//    joinedDF.explain(true)
+//
+//    joinedDF.show()
+//    assert(joinedDF.collect().length == 2)
+//  }
+
   test("string index") {
     val myDf = Seq((1234, 12345, "abcd"), (1234, 102, "abcde"), (1237, 120, "abcdef"), (1, -3, "abcde")).toDF("src", "dst", "tag")
     val df = Seq(("abcd")).toDF("tag")

@@ -310,11 +310,20 @@ class InternalIndexedDF {
     * @param keys
     * @return
     */
-  def multigetJoined(keys: Iterator[InternalRow], joiner: UnsafeRowJoiner, rightOutput: Seq[Attribute], joinRightCol: Int): Iterator[InternalRow] = {
-    keys.flatMap { right =>
-      val key = right.get(joinRightCol, schema(indexCol).dataType)
-      get(key.asInstanceOf[AnyVal]).map { left =>
-        joiner.join(left.asInstanceOf[UnsafeRow], right.asInstanceOf[UnsafeRow])
+  def multigetJoinedRight(rightIter: Iterator[InternalRow], joiner: UnsafeRowJoiner, rightOutput: Seq[Attribute], joinRightCol: Int): Iterator[InternalRow] = {
+    rightIter.flatMap { rightRow =>
+      val rightKey = rightRow.get(joinRightCol, schema(indexCol).dataType)
+      get(rightKey.asInstanceOf[AnyVal]).map { leftRow =>
+        joiner.join(leftRow.asInstanceOf[UnsafeRow], rightRow.asInstanceOf[UnsafeRow])
+      }
+    }
+  }
+
+  def multigetJoinedLeft(leftIter: Iterator[InternalRow], joiner: UnsafeRowJoiner, leftOutput: Seq[Attribute], joinLeftCol: Int): Iterator[InternalRow] = {
+    leftIter.flatMap { leftRow =>
+      val leftKey = leftRow.get(joinLeftCol, schema(indexCol).dataType)
+      get(leftKey.asInstanceOf[AnyVal]).map { rightRow =>
+        joiner.join(leftRow.asInstanceOf[UnsafeRow], rightRow.asInstanceOf[UnsafeRow])
       }
     }
   }

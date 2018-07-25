@@ -78,7 +78,7 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     * @param condition
     * @return
     */
-  def joiningIndexedColumn(
+  def joiningIndexedColumnLeft(
       left : IndexedBlockRDD,
       right : LogicalPlan,
       joinType : JoinType,
@@ -93,6 +93,25 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
         })
 
         leftColNo == left.asInstanceOf[IndexedBlockRDD].rdd.colNo
+      }
+    }
+  }
+
+  def joiningIndexedColumnRight(
+      left : LogicalPlan,
+      right : IndexedBlockRDD,
+      joinType : JoinType,
+      condition : Option[Expression]): Boolean = {
+    Join(left, right, joinType, condition) match {
+      case ExtractEquiJoinKeys(_, _, rightKeys, _, _, rChild) => {
+        var rightColNo = 0
+        var i = 0
+        rChild.output.foreach(col => {
+          if (col == rightKeys(0)) rightColNo = i
+          i += 1
+        })
+
+        rightColNo == right.asInstanceOf[IndexedBlockRDD].rdd.colNo
       }
     }
   }
@@ -117,13 +136,16 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     /**
       * apply indexed join only on indexed data
       */
-    case Join(left : IndexedBlockRDD, right, joinType, condition) if joiningIndexedColumn(left, right, joinType, condition) =>
+    case Join(left : IndexedBlockRDD, right, joinType, condition) if joiningIndexedColumnLeft(left, right, joinType, condition) =>
       IndexedJoin(left.asInstanceOf[IndexedOperator], right, joinType, condition)
+
+    case Join(left, right : IndexedBlockRDD, joinType, condition) if joiningIndexedColumnRight(left, right, joinType, condition) =>
+      IndexedJoin(left, right.asInstanceOf[IndexedOperator], joinType, condition)
+
 
     /**
       * apply indexed filtering only on filtered data
       */
-
     case Filter(IsNotNull(attr: AttributeReference), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
       child.asInstanceOf[IndexedBlockRDD]
 
