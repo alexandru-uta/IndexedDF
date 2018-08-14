@@ -6,7 +6,7 @@ import org.apache.spark.sql.InMemoryRelationMatcher
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, Join, LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, EqualTo, Expression, IsNotNull}
+import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, EqualTo, Expression, IsNotNull}
 import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.slf4j.LoggerFactory
@@ -122,7 +122,11 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
 
     val indexedColNo = child.rdd.colNo
     val indexedAttrRef = child.output(indexedColNo)
-    attributeReference == indexedAttrRef
+    attributeReference.exprId == indexedAttrRef.exprId
+  }
+
+  def joinSameFilterColumns(joinCondition: EqualTo, leftCondition: EqualTo, rightCondition: EqualTo): Boolean = {
+    joinCondition.left == leftCondition.left && joinCondition.right == rightCondition.left
   }
 
   def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
@@ -149,8 +153,17 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     case Filter(IsNotNull(attr: AttributeReference), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
       child.asInstanceOf[IndexedBlockRDD]
 
+    case Filter(And(left, IsNotNull(attr: AttributeReference)), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
+      Filter(left, child.asInstanceOf[IndexedBlockRDD])
+
+    case Filter(And(IsNotNull(attr: AttributeReference), right), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
+      Filter(right, child.asInstanceOf[IndexedBlockRDD])
+
     case Filter(condition @ EqualTo(attr: AttributeReference, _), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
       IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
 
+    case Join(left @ IndexedFilter(conditionLeft: EqualTo, _), right @ IndexedFilter(conditionRight: EqualTo, rightChild),
+      joinType, Some(condition: EqualTo)) if joinSameFilterColumns(condition, conditionLeft, conditionRight) =>
+        IndexedJoin(left, rightChild.asInstanceOf[IndexedOperator], joinType, Some(condition))
   }
 }
