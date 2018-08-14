@@ -150,14 +150,14 @@ object ConvertToIndexedOperators extends Rule[LogicalPlan] {
     /**
       * apply indexed filtering only on filtered data
       */
-    case Filter(IsNotNull(attr: AttributeReference), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
-      child.asInstanceOf[IndexedBlockRDD]
+    case Filter(IsNotNull(attr: AttributeReference), child : IndexedBlockRDD) =>
+      child
 
-    case Filter(And(left, IsNotNull(attr: AttributeReference)), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
-      Filter(left, child.asInstanceOf[IndexedBlockRDD])
+    case Filter(And(left, IsNotNull(attr: AttributeReference)), child : IndexedBlockRDD) =>
+      Filter(left, child)
 
-    case Filter(And(IsNotNull(attr: AttributeReference), right), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
-      Filter(right, child.asInstanceOf[IndexedBlockRDD])
+    case Filter(And(IsNotNull(attr: AttributeReference), right), child : IndexedBlockRDD) =>
+      Filter(right, child)
 
     case Filter(condition @ EqualTo(attr: AttributeReference, _), child : IndexedBlockRDD) if filterIndexedColumn(child, attr) =>
       IndexedFilter(condition, child.asInstanceOf[IndexedOperator])
