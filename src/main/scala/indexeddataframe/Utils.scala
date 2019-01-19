@@ -10,6 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection, U
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.types.{DataType, LongType, StructType}
 import org.apache.spark.storage.StorageLevel
+import org.github.jamm.MemoryMeter
 
 
 object Utils {
@@ -31,6 +32,16 @@ object Utils {
     idf.initialize()
     idf.createIndex(types, output, colNo)
     idf.appendRows(rows)
+    val meter = new MemoryMeter()
+    val MB = 1024 * 1024
+    println("measuring...")
+    println("total = " + meter.measureDeep(idf) / MB)
+    println("rows = " + meter.measureDeep(idf.rowBatches) / MB)
+    println("index = " + meter.measureDeep(idf.index) / MB)
+    println("#children = " + meter.countChildren(idf))
+    println("nBatches = " + idf.nRowBatches)
+    println("==========================")
+
     /*
     val iter = idf.get(32985348972561L)
     var nRows = 0

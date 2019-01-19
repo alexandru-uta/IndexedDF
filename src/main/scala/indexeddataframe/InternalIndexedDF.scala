@@ -34,7 +34,7 @@ class InternalIndexedDF {
   private val batchSize: Int = (4 * 1024 * 1024)
 
   // the index data structure
-  private var index:TrieMap[Long, Long] = null
+  var index:TrieMap[Long, Long] = null
 
   // the schema of the dataframe
   private var schema:StructType = null
@@ -46,8 +46,8 @@ class InternalIndexedDF {
   private var nColumns:Int = 0
 
   // the row batches in which we keep the row data
-  private var rowBatches:TrieMap[Int, RowBatch] = null
-  private var nRowBatches = 0
+  var rowBatches:TrieMap[Int, RowBatch] = null
+  var nRowBatches = 0
 
   // projection that adds the #prev column for the backward chasing pointers
   private var backwardPointerJoiner:UnsafeRowJoiner = null

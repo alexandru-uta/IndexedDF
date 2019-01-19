@@ -10,7 +10,6 @@ import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.slf4j.LoggerFactory
 
-
 trait LeafExecNode extends SparkPlan {
   override final def children: Seq[SparkPlan] = Nil
   override def producedAttributes: AttributeSet = outputSet

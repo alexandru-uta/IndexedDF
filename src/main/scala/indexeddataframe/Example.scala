@@ -83,7 +83,8 @@ object BenchmarkPrograms {
 
     indexedDF.createOrReplaceTempView("edges")
 
-    val res = sparkSession.sql("SELECT * FROM edges where edges.src > 100000000")
+    val res = sparkSession.sql("SELECT * FROM edges where edges.src = 100000000")
+    res.explain(true)
 
     // run the scan a few times and compute the average
     var totalTime = 0.0
