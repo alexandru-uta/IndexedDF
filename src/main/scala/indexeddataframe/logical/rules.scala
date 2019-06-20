@@ -15,7 +15,7 @@ import scala.collection.concurrent.TrieMap
 
 object IndexLocalRelation extends Rule[LogicalPlan] {
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
-    case CreateIndex(colNo, LocalRelation(output, data)) =>
+    case CreateIndex(colNo, LocalRelation(output, data, _)) =>
       IndexedLocalRelation(output, data)
   }
 }

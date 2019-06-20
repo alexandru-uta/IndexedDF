@@ -54,11 +54,11 @@ case class IndexedLocalRelation(output: Seq[Attribute], data: Seq[InternalRow])
 
   override protected def stringArgs = Iterator(output)
 
-  override def sameResult(plan: LogicalPlan): Boolean = plan match {
-    case IndexedLocalRelation(otherOutput, otherData) =>
-      (otherOutput.map(_.dataType) == output.map(_.dataType) && otherData == data)
-    case _ => false
-  }
+//  override def sameResult(plan: LogicalPlan): Boolean = plan match {
+//    case IndexedLocalRelation(otherOutput, otherData) =>
+//      (otherOutput.map(_.dataType) == output.map(_.dataType) && otherData == data)
+//    case _ => false
+//  }
 }
 
 case class IndexedBlockRDD(
@@ -71,21 +71,25 @@ case class IndexedBlockRDD(
   override def newInstance(): IndexedBlockRDD.this.type =
     IndexedBlockRDD(output.map(_.newInstance()), rdd, child).asInstanceOf[this.type]
 
+  /*
   override def sameResult(plan: LogicalPlan): Boolean = plan match {
     case IndexedBlockRDD(_, otherRDD, child) => rdd.id == otherRDD.id
     case _ => false
   }
+  */
 
   override def producedAttributes: AttributeSet = outputSet
-
+/*
   override lazy val statistics: Statistics = {
     val batchStats: LongAccumulator = child.sqlContext.sparkContext.longAccumulator
-    if (batchStats.value == 0L) {
-      Statistics(sizeInBytes =  org.apache.spark.sql.internal.SQLConf.DEFAULT_SIZE_IN_BYTES.defaultValue.get)
+    /*if (batchStats.value == 0L) {
+      Statistics(sizeInBytes = org.apache.spark.sql.internal.SQLConf.DEFAULT_SIZE_IN_BYTES.defaultValue.get)
     } else {
       Statistics(sizeInBytes = batchStats.value.longValue)
-    }
+    }*/
+    Statistics(0)
   }
+ */
 }
 
 case class IndexedJoin(left: LogicalPlan,
