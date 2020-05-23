@@ -6,17 +6,20 @@ class RowBatch {
     // 4 MB batch by default
     private int batchSize = 4 * 1024 * 1024;
     // the array that stores the data
-    public byte[] rowData = null;
+    //public byte[] rowData = null;
+    public long rowData = -1;
     // the current offset
     private int size = 0;
     private int lastOffset = 0;
 
-    /**
+   /**
      * constructor for the row batch
      */
     public RowBatch(int batchSize) {
         this.batchSize = batchSize;
-        rowData = new byte[batchSize];
+        //rowData = new byte[batchSize];
+        rowData = Platform.allocateMemory(batchSize);
+        Platform.setMemory(rowData, (byte)0, batchSize);
     }
 
     /**
@@ -24,12 +27,9 @@ class RowBatch {
      * @param crntRow
      */
     public int appendRow(byte[] crntRow) {
-        if (rowData == null) {
-            // the row batch was not initialized
-            return -1;
-        }
-        System.arraycopy(crntRow, 0, rowData, size, crntRow.length);
-        //Platform.copyMemory(crntRow, 0, rowData, size, crntRow.length);
+        //System.arraycopy(crntRow, 0, rowData, size, crntRow.length);
+        Platform.copyMemory(crntRow, Platform.BOOLEAN_ARRAY_OFFSET, null, rowData + size, crntRow.length);
+
         int returnedOffset = size;
         lastOffset = size;
         size += crntRow.length;
@@ -48,8 +48,8 @@ class RowBatch {
             return null;
         }
         byte[] row = new byte[len];
-        System.arraycopy(rowData, offset, row, 0, len);
-        //Platform.copyMemory(rowData, offset, row, 0, len);
+        //System.arraycopy(rowData, offset, row, 0, len);
+        Platform.copyMemory(null, rowData + offset, row, Platform.BYTE_ARRAY_OFFSET, len);
         return row;
     }
 
