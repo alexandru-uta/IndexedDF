@@ -146,6 +146,10 @@ object BenchmarkPrograms {
     println("proj on Indexed DataFrame took %f ms".format((totalTime / ((nTimesRun - 1) * 1000000.0))))
   }
 
+  def getSizeInBytes(df: DataFrame) = {
+    //df.queryExecution.optimizedPlan.statistics.sizeInBytes
+  }
+
   def main(args: Array[String]): Unit = {
 
     var delimiter1 = ""
@@ -185,6 +189,8 @@ object BenchmarkPrograms {
       // use this, as otherwise, the join can be scheduled with locality for the "right" relation, which is not desirable
       // as we would have to move the indexed data, which is slow
       .config("spark.shuffle.reduceLocality.enabled", "false")
+      .config("spark.sql.inMemoryColumnarStorage.compressed", "false")
+      .config("spark.sql.join.preferSortMergeJoin", "false")
       .getOrCreate()
 
     import sparkSession.implicits._
@@ -224,27 +230,29 @@ object BenchmarkPrograms {
 
     // cache the nodes and trigger the execution
     nodesDF = nodesDF.cache()
-    //edgesDF = edgesDF.cache()
+    edgesDF = edgesDF.cache()
     triggerExecutionDF(nodesDF)
-    //triggerExecutionDF(edgesDF)
+    triggerExecutionDF(edgesDF)
+
+    runJoin(edgesDF, nodesDF, sparkSession)
 
     // create the Index and cache the indexed DF
-    val indexedDF = createIndexAndCache(edgesDF)
+    //val indexedDF = createIndexAndCache(edgesDF)
 
     // run a join between the edges of the graph and its nodes
-    runJoin(indexedDF, nodesDF, sparkSession)
+    //runJoin(indexedDF, nodesDF, sparkSession)
 
     //run a scan of an indexed dataframe
-    runScan(indexedDF, sparkSession)
+    //runScan(indexedDF, sparkSession)
 
     // run a filter on an indexed dataframe
-    runFilter(indexedDF, sparkSession)
+    //runFilter(indexedDF, sparkSession)
 
     // run an aggregate on an indexed dataframe
-    runAgg(indexedDF, sparkSession)
+    //runAgg(indexedDF, sparkSession)
 
     // run a projection on an indexed dataframe
-    runProj(indexedDF, sparkSession)
+    //runProj(indexedDF, sparkSession)
 
     sparkSession.close()
     sparkSession.stop()

@@ -8,7 +8,7 @@ import indexeddataframe.RowBatch
 import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner, UnsafeRowJoiner}
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.hash.Murmur3_x86_32
-
+import org.apache.spark.unsafe.types.UTF8String
 
 /**
   * this the internal data structure that stores a partition of an Indexed Data Frame
@@ -65,8 +65,8 @@ class InternalIndexedDF {
   // the number of rows of the InternalIndexed DF partition
   var nRows:Int = 0
 
-  // total size of the data in the partition
-  var dataSize:Long = 0
+  var dataSize: Int = 0
+
   /**
     * function that creates a row batch
     */
@@ -275,9 +275,11 @@ class InternalIndexedDF {
        // if the key is a string, just get the bytes and hash them
        case _: String => Murmur3_x86_32.hashUnsafeBytes(key.asInstanceOf[String].getBytes(),
               Platform.BYTE_ARRAY_OFFSET, key.asInstanceOf[String].length, 42)
+       case _: UTF8String => Murmur3_x86_32.hashUnsafeBytes(key.asInstanceOf[UTF8String].getBytes(),
+         Platform.BYTE_ARRAY_OFFSET, key.asInstanceOf[UTF8String].numBytes(), 42)
        case _: Double => key.asInstanceOf[Double].toLong
        // fall back to long as default
-       case _ => key.asInstanceOf[Long]
+       case _ => key.asInstanceOf[Object].hashCode().toLong
      }
      //println("key = " + key)
      val rowPointer = index.get(internalKey)

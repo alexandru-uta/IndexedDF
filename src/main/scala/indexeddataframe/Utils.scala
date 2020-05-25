@@ -11,10 +11,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeRowJoiner
 import org.apache.spark.sql.types.{DataType, LongType, StructType}
 import org.apache.spark.storage.StorageLevel
 import org.github.jamm.MemoryMeter
-
+import org.apache.log4j.{Level, LogManager}
 
 object Utils {
-
+  private val logger = LogManager.getRootLogger
   def defaultNoPartitions: Int = 16
   val defaultPartitioner: HashPartitioner = new HashPartitioner(defaultNoPartitions)
 
@@ -32,16 +32,19 @@ object Utils {
     idf.initialize()
     idf.createIndex(types, output, colNo)
     idf.appendRows(rows)
+    /*
     val meter = new MemoryMeter()
     val MB = 1024 * 1024
-    println("measuring...")
-    println("total = " + meter.measureDeep(idf) / MB)
-    println("rows = " + meter.measureDeep(idf.rowBatches) / MB)
-    println("index = " + meter.measureDeep(idf.index) / MB)
-    println("#children = " + meter.countChildren(idf))
-    println("nBatches = " + idf.nRowBatches)
-    println("==========================")
-
+    logger.setLevel(Level.DEBUG)
+    logger.info(" ======== measuring... ============")
+    logger.info("total = " + meter.measureDeep(idf) / MB)
+    logger.info("rows = " + meter.measureDeep(idf.rowBatches) / MB)
+    logger.info("index = " + meter.measureDeep(idf.index) / MB)
+    logger.info("#children = " + meter.countChildren(idf))
+    logger.info("nBatches = " + (idf.nRowBatches * 8 / MB))
+    logger.info("data = " + idf.dataSize / MB)
+    logger.info("==========================")
+    */
     /*
     val iter = idf.get(32985348972561L)
     var nRows = 0
