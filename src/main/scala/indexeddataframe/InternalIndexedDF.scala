@@ -63,7 +63,7 @@ class InternalIndexedDF {
   }
 
   // the number of rows of the InternalIndexed DF partition
-  private var nRows:Int = 0
+  var nRows:Int = 0
 
   var dataSize: Int = 0
 
@@ -177,10 +177,13 @@ class InternalIndexedDF {
     // join the current row to be inserted with the #prev field
     // but check first whether it is already an unsafe row
     // if not, we need to convert it
+    var t1 = System.nanoTime()
     val resultRow = if (row.isInstanceOf[UnsafeRow])
       backwardPointerJoiner.join(row.asInstanceOf[UnsafeRow], prevRow)
     else
       backwardPointerJoiner.join(convertToUnsafe(row), prevRow)
+    var t2 = System.nanoTime()
+    totalProjections += (t2 - t1) 
 
     // get the row size
     val rowDataSize = resultRow.getSizeInBytes
@@ -203,15 +206,16 @@ class InternalIndexedDF {
     // store the pointer in the cTrie
     this.index.put(key, cTriePointer)
     // put the data in the rowbatch
+    t1 = System.nanoTime()
     crntBatch.appendRow(resultRow.getBytes)
+    t2 = System.nanoTime()
+    totalAppend += (t2 - t1)
     // increase the number of rows
     this.nRows += 1
-
-    // just a sanity check
-    val res = unpackBatchRowIdOffset(cTriePointer)
-    assert(nRowBatches - 1 == res._1 && offset == res._2 && rowDataSize == res._3)
   }
 
+  var totalProjections = 0.0
+  var totalAppend = 0.0
   /**
     * method that appends a list of InternalRow
     * @param rows
@@ -221,7 +225,7 @@ class InternalIndexedDF {
       dataSize += row.asInstanceOf[UnsafeRow].getSizeInBytes()
       appendRow(row)
     })
-    //System.out.println("!!!! " + min + " " + max)
+    println("append took %f, projection took %f".format(totalAppend/1000000.0, totalProjections/1000000.0))
   }
 
   /**
@@ -232,6 +236,9 @@ class InternalIndexedDF {
     // unsafeRow object that points to the byte array representing its data
     private val currentRow = new UnsafeRow(schema.size)
     private var crntRowPointer = rowPointer
+
+    override val size = nRows
+    override val length = nRows 
 
     def hasNext(): Boolean = {
       var ret = false
@@ -247,7 +254,8 @@ class InternalIndexedDF {
       val offset = unpacked._2
       val size = unpacked._3
       // get the row data
-      currentRow.pointTo(rowBatches.get(batchNo).get.rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
+      //currentRow.pointTo(rowBatches.get(batchNo).get.rowData, offset + Platform.BYTE_ARRAY_OFFSET, size)
+      currentRow.pointTo(null, rowBatches.get(batchNo).get.rowData + offset, size)
       // update the current row pointer
       crntRowPointer = currentRow.getLong(nColumns)
       // return the current row
@@ -282,15 +290,61 @@ class InternalIndexedDF {
   }
 
   /**
+    * implementation of the iterator imposed by the RDD interface
+    */
+  class PartitionIterator() extends Iterator[InternalRow] {
+    override val size = nRows
+    override val length = nRows
+    // the keys of the
+    var keys:Iterator[Long] = null
+    var crntKey:Long = 0L
+    var crntRowIterator:Iterator[InternalRow] = null
+    def hasNext(): Boolean = {
+      var result = false
+      if (keys == null) {
+        // this is the first time we instantiate the iterator
+        keys = index.keysIterator
+        if (keys.hasNext) {
+          result = true
+          crntKey = keys.next()
+          crntRowIterator = get(crntKey)
+        }
+      } else {
+        // the keys were already populated
+        if (crntRowIterator.hasNext) {
+          result = true
+        }
+        else {
+          if (keys.hasNext) {
+            result = true
+            crntKey = keys.next()
+            crntRowIterator = get(crntKey)
+          }
+        }
+      }
+      result
+    }
+    def next(): InternalRow = {
+      //println("key: %d".format(crntKey))
+      crntRowIterator.next().copy()
+    }
+  }
+  /**
     * iterator function imposed by the RDD interface
     */
   def iterator(): Iterator[InternalRow] = {
+    //println("iterator: triggered")
+    new PartitionIterator
+  }
+  /*
+  def iterator(): Iterator[InternalRow] = {
+    println("iterator: was called!")
     index.iterator.flatMap{ pair =>
       get(pair._1.asInstanceOf[AnyVal]).map {
         row => row.copy()
       } }
   }
-
+  */
   /**
     * returns the number of rows in this partition
     * @return
