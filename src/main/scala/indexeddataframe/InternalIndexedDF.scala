@@ -8,7 +8,7 @@ import indexeddataframe.RowBatch
 import org.apache.spark.sql.catalyst.expressions.codegen.{GenerateUnsafeRowJoiner, UnsafeRowJoiner}
 import org.apache.spark.unsafe.Platform
 import org.apache.spark.unsafe.hash.Murmur3_x86_32
-import org.apache.spark.unsafe.types.UTF8String
+
 
 /**
   * this the internal data structure that stores a partition of an Indexed Data Frame
@@ -50,7 +50,7 @@ class InternalIndexedDF {
   var nRowBatches = 0
 
   // projection that adds the #prev column for the backward chasing pointers
-  private var backwardPointerJoiner:UnsafeRowJoiner = null
+  private var backwardPointerJoiner:CustomUnsafeRowJoiner = null
   // projection for converting to unsafe rows, in case the input rows are not unsafe rows
   private var convertToUnsafe:UnsafeProjection = null
 
@@ -65,8 +65,8 @@ class InternalIndexedDF {
   // the number of rows of the InternalIndexed DF partition
   var nRows:Int = 0
 
-  var dataSize: Int = 0
-
+  // total size of the data in the partition
+  var dataSize:Long = 0
   /**
     * function that creates a row batch
     */
@@ -110,7 +110,7 @@ class InternalIndexedDF {
     rightSchema = rightSchema.add(rightField)
     // generate code for joining the inserted rows with the #prev field
     // this basically means adding one column
-    backwardPointerJoiner = GenerateUnsafeRowJoiner.create(schema, rightSchema)
+    backwardPointerJoiner = GenerateCustomUnsafeRowJoiner.create(schema, rightSchema)
     // initialize the unsafe projection
     convertToUnsafe = UnsafeProjection.create(schema)
 
@@ -155,15 +155,16 @@ class InternalIndexedDF {
     */
   def appendRow(row: InternalRow) = {
     // check the type of the key and transform to long
+    val unsafeRow = row.asInstanceOf[UnsafeRow]
     val key = schema(indexCol).dataType match  {
-      case LongType => row.asInstanceOf[UnsafeRow].getLong(indexCol)
-      case IntegerType => row.asInstanceOf[UnsafeRow].getInt(indexCol).toLong
+      case LongType => unsafeRow.getLong(indexCol)
+      case IntegerType => unsafeRow.getInt(indexCol).toLong
       // if the key is a string, just get the bytes and hash them
-      case StringType => Murmur3_x86_32.hashUnsafeBytes(row.asInstanceOf[UnsafeRow].getString(indexCol).getBytes(),
-                        Platform.BYTE_ARRAY_OFFSET, row.asInstanceOf[UnsafeRow].getString(indexCol).length, 42)
-      case DoubleType => row.asInstanceOf[UnsafeRow].getDouble(indexCol).toLong
+      case StringType => Murmur3_x86_32.hashUnsafeBytes(unsafeRow.getString(indexCol).getBytes(),
+        Platform.BYTE_ARRAY_OFFSET, unsafeRow.getString(indexCol).length, 42)
+      case DoubleType => unsafeRow.getDouble(indexCol).toLong
       // fall back to long as default
-      case _ => row.asInstanceOf[UnsafeRow].getLong(indexCol)
+      case _ => unsafeRow.getLong(indexCol)
     }
 
     // create an unsafe row that contains just the #prev field
@@ -174,26 +175,23 @@ class InternalIndexedDF {
     for (i <- 0 to 7) prevByteArray(i) = 0
     prevRow.pointTo(prevByteArray, 16)
 
+    // get the current batch
+    val crntBatch = getBatchForRowSize(unsafeRow.getSizeInBytes + 8)
+    val offset = crntBatch.getCurrentOffset()
+    val ptr = crntBatch.getCurrentPointer()
+
     // join the current row to be inserted with the #prev field
     // but check first whether it is already an unsafe row
     // if not, we need to convert it
     var t1 = System.nanoTime()
-    val resultRow = if (row.isInstanceOf[UnsafeRow])
-      backwardPointerJoiner.join(row.asInstanceOf[UnsafeRow], prevRow)
-    else
-      backwardPointerJoiner.join(convertToUnsafe(row), prevRow)
+
+    val resultRow = backwardPointerJoiner.join(unsafeRow, prevRow, ptr + offset)
+
     var t2 = System.nanoTime()
-    totalProjections += (t2 - t1) 
-
-    // get the row size
-    val rowDataSize = resultRow.getSizeInBytes
-
-    // get the current batch
-    val crntBatch = getBatchForRowSize(rowDataSize)
-    val offset = crntBatch.getCurrentOffset()
+    totalProjections += (t2 - t1)
 
     // build backward crawling pointer
-    val cTriePointer = packBatchRowIdOffset(nRowBatches - 1, offset, rowDataSize)
+    val cTriePointer = packBatchRowIdOffset(nRowBatches - 1, offset, unsafeRow.getSizeInBytes + 8)
 
     // check if the row already exists in the ctrie
     val value = index.get(key)
@@ -207,7 +205,7 @@ class InternalIndexedDF {
     this.index.put(key, cTriePointer)
     // put the data in the rowbatch
     t1 = System.nanoTime()
-    crntBatch.appendRow(resultRow.getBytes)
+    crntBatch.updateAppendedRowSize(resultRow.getSizeInBytes)
     t2 = System.nanoTime()
     totalAppend += (t2 - t1)
     // increase the number of rows
@@ -238,7 +236,7 @@ class InternalIndexedDF {
     private var crntRowPointer = rowPointer
 
     override val size = nRows
-    override val length = nRows 
+    override val length = nRows
 
     def hasNext(): Boolean = {
       var ret = false
@@ -266,27 +264,25 @@ class InternalIndexedDF {
   /**
     * function that performs lookups in the indexed data frame
     * returns an iterator of rows
-   */
-   def get(key: Any): Iterator[InternalRow] = {
-     // check the type of the key and transform to long
-     val internalKey = key match  {
-       case _: Long => key.asInstanceOf[Long]
-       case _: Int => key.asInstanceOf[Int].toLong
-       // if the key is a string, just get the bytes and hash them
-       case _: String => Murmur3_x86_32.hashUnsafeBytes(key.asInstanceOf[String].getBytes(),
-              Platform.BYTE_ARRAY_OFFSET, key.asInstanceOf[String].length, 42)
-       case _: UTF8String => Murmur3_x86_32.hashUnsafeBytes(key.asInstanceOf[UTF8String].getBytes(),
-         Platform.BYTE_ARRAY_OFFSET, key.asInstanceOf[UTF8String].numBytes(), 42)
-       case _: Double => key.asInstanceOf[Double].toLong
-       // fall back to long as default
-       case _ => key.asInstanceOf[Object].hashCode().toLong
-     }
-     //println("key = " + key)
-     val rowPointer = index.get(internalKey)
-     var ret: RowIterator = null
-     if (rowPointer != None) ret = new RowIterator(rowPointer.get)
-     else ret = new RowIterator(0xffffffffffffffffL)
-     ret
+    */
+  def get(key: Any): Iterator[InternalRow] = {
+    // check the type of the key and transform to long
+    val internalKey = key match  {
+      case _: Long => key.asInstanceOf[Long]
+      case _: Int => key.asInstanceOf[Int].toLong
+      // if the key is a string, just get the bytes and hash them
+      case _: String => Murmur3_x86_32.hashUnsafeBytes(key.asInstanceOf[String].getBytes(),
+        Platform.BYTE_ARRAY_OFFSET, key.asInstanceOf[String].length, 42)
+      case _: Double => key.asInstanceOf[Double].toLong
+      // fall back to long as default
+      case _ => key.asInstanceOf[Long]
+    }
+    //println("key = " + key)
+    val rowPointer = index.get(internalKey)
+    var ret: RowIterator = null
+    if (rowPointer != None) ret = new RowIterator(rowPointer.get)
+    else ret = new RowIterator(0xffffffffffffffffL)
+    ret
   }
 
   /**
@@ -412,7 +408,7 @@ class InternalIndexedDF {
     var rightSchema = new StructType()
     val rightField = new StructField("prev", LongType)
     rightSchema = rightSchema.add(rightField)
-    copy.backwardPointerJoiner = GenerateUnsafeRowJoiner.create(schema, rightSchema)
+    copy.backwardPointerJoiner = GenerateCustomUnsafeRowJoiner.create(schema, rightSchema)
     copy.convertToUnsafe = UnsafeProjection.create(schema)
 
     // return the copy

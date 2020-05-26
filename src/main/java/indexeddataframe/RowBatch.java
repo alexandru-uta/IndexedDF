@@ -12,7 +12,7 @@ class RowBatch {
     private int size = 0;
     private int lastOffset = 0;
 
-   /**
+    /**
      * constructor for the row batch
      */
     public RowBatch(int batchSize) {
@@ -33,6 +33,20 @@ class RowBatch {
         int returnedOffset = size;
         lastOffset = size;
         size += crntRow.length;
+        return returnedOffset;
+    }
+
+    /**
+     * function that appends a row and returns the offset at which it can be found
+     * @param rowSize
+     */
+    public int updateAppendedRowSize(int rowSize) {
+        //System.arraycopy(crntRow, 0, rowData, size, crntRow.length);
+        //Platform.copyMemory(crntRow, Platform.BOOLEAN_ARRAY_OFFSET, null, rowData + size, crntRow.length);
+
+        int returnedOffset = size;
+        lastOffset = size;
+        size += rowSize;
         return returnedOffset;
     }
 
@@ -73,4 +87,6 @@ class RowBatch {
     }
 
     public int getCurrentOffset() { return size; }
+
+    public long getCurrentPointer() { return rowData; }
 }
